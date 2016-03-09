@@ -1,0 +1,14 @@
+vim drivers/net/wireless/rockchip_wlan/wifi_sys/rkwifi_sys_iface.c
+
+
+//extern int rockchip_wifi_init_module_rkwifi(void);
+//extern void rockchip_wifi_exit_module_rkwifi(void);
+
+
+    if (type < WIFI_AP6XXX_SERIES) {
+        if (enable > 0)
+//            ret = rockchip_wifi_init_module_rkwifi();
+        else
+///            rockchip_wifi_exit_module_rkwifi();
+        return ret;
+    }
