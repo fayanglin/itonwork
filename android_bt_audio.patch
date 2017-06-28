@@ -1,0 +1,1281 @@
+commit ced26752114fce33964f828022a3f16783e26db1
+Author: “fayang.lin” <“fayang.lin@hampoo.com”>
+Date:   Thu Mar 2 22:54:46 2017 +0800
+
+    modify by linfayang : add the A2dp Sink function for Ap6255 ,conenet ok,pairing ok,play misc ok
+
+diff --git a/device/intel/cherrytrail/cht_cr_mrd_w/BoardConfig.mk b/device/intel/cherrytrail/cht_cr_mrd_w/BoardConfig.mk
+index 4b27784..895320b 100755
+--- a/device/intel/cherrytrail/cht_cr_mrd_w/BoardConfig.mk
++++ b/device/intel/cherrytrail/cht_cr_mrd_w/BoardConfig.mk
+@@ -3,6 +3,8 @@ DEVICE_PACKAGE_OVERLAYS += device/intel/cherrytrail/cht_cr_mrd_w/overlay
+ BOARD_FLASHFILES += \
+         device/intel/cherrytrail/cht_cr_mrd_w/oemvars.txt:oemvars.txt
+ 
++# Have ble  Remote Control choose: if have   Remote Control BOARD_HAVE_BLUETOOTH_CONTROL := true else BOARD_HAVE_BLUETOOTH_CONTROL := false
++BOARD_HAVE_BLUETOOTH_CONTROL := false
+ # wifi module choose: if wifi chip bcm43438 BOARD_WIFI_BCM43438 := true else BOARD_WIFI_BCM43438 := false
+ BOARD_WIFI_BCM43438 := true
+ # Enable to use DPCM driver in audio offload HAL
+diff --git a/device/intel/cherrytrail/cht_cr_mrd_w/audio/audio_policy.conf b/device/intel/cherrytrail/cht_cr_mrd_w/audio/audio_policy.conf
+index 77e61b7..b1d5153 100755
+--- a/device/intel/cherrytrail/cht_cr_mrd_w/audio/audio_policy.conf
++++ b/device/intel/cherrytrail/cht_cr_mrd_w/audio/audio_policy.conf
+@@ -29,6 +29,13 @@ audio_hw_modules {
+         devices AUDIO_DEVICE_OUT_SPEAKER|AUDIO_DEVICE_OUT_WIRED_HEADSET|AUDIO_DEVICE_OUT_WIRED_HEADPHONE|AUDIO_DEVICE_OUT_ALL_SCO
+         flags AUDIO_OUTPUT_FLAG_PRIMARY
+       }
++      lpmp3 {
++       sampling_rates 8000|16000|32000|44100|48000
++       channel_masks AUDIO_CHANNEL_OUT_STEREO
++       formats AUDIO_FORMAT_MP3
++        devices AUDIO_DEVICE_OUT_EARPIECE|AUDIO_DEVICE_OUT_SPEAKER|AUDIO_DEVICE_OUT_WIRED_HEADSET|AUDIO_DEVICE_OUT_WIRED_HEADPHONE|AUDIO_DEVICE_OUT_ALL_SCO|AUDIO_DEVICE_OUT_AUX_DIGITAL
++       flags AUDIO_OUTPUT_FLAG_DIRECT|AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD|AUDIO_OUTPUT_FLAG_NON_BLOCKING
++      }
+       deep_buffer {
+         sampling_rates 48000
+         channel_masks AUDIO_CHANNEL_OUT_STEREO
+@@ -41,7 +48,7 @@ audio_hw_modules {
+       primary {
+         sampling_rates 8000|11025|12000|16000|22050|24000|32000|44100|48000
+         channel_masks AUDIO_CHANNEL_IN_MONO|AUDIO_CHANNEL_IN_STEREO
+-        formats AUDIO_FORMAT_PCM_16_BIT
++        formats AUDIO_FORMAT_PCM_8_BIT|AUDIO_FORMAT_PCM_16_BIT
+         devices AUDIO_DEVICE_IN_BUILTIN_MIC|AUDIO_DEVICE_IN_WIRED_HEADSET|AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET
+       }
+     }
+@@ -55,6 +62,14 @@ audio_hw_modules {
+         devices AUDIO_DEVICE_OUT_ALL_A2DP
+       }
+     }
++    inputs {
++      a2dp {
++        sampling_rates 44100|48000
++        channel_masks AUDIO_CHANNEL_IN_STEREO|AUDIO_CHANNEL_IN_MONO
++        formats AUDIO_FORMAT_PCM_16_BIT|AUDIO_FORMAT_PCM_8_BIT
++        devices AUDIO_DEVICE_IN_BLUETOOTH_A2DP
++      }
++    }
+   }
+   hdmi {
+     outputs {
+diff --git a/external/bluetooth/bluedroid/audio_a2dp_hw/audio_a2dp_hw.c b/external/bluetooth/bluedroid/audio_a2dp_hw/audio_a2dp_hw.c
+index 88ac8d6..31485dc 100644
+--- a/external/bluetooth/bluedroid/audio_a2dp_hw/audio_a2dp_hw.c
++++ b/external/bluetooth/bluedroid/audio_a2dp_hw/audio_a2dp_hw.c
+@@ -69,7 +69,7 @@
+ /*****************************************************************************
+ **  Local type definitions
+ ******************************************************************************/
+-
++int fd_sample = -1;
+ typedef enum {
+     AUDIO_A2DP_STATE_STARTING,
+     AUDIO_A2DP_STATE_STARTED,
+@@ -917,9 +917,8 @@ static ssize_t in_read(struct audio_stream_in *stream, void* buffer,
+ {
+     struct a2dp_stream_in *in = (struct a2dp_stream_in *)stream;
+     int read;
+-
++    //int write_in;
+     DEBUG("read %zu bytes, state: %d", bytes, in->common.state);
+-
+     if (in->common.state == AUDIO_A2DP_STATE_SUSPENDED)
+     {
+         DEBUG("stream suspended");
+@@ -956,6 +955,15 @@ static ssize_t in_read(struct audio_stream_in *stream, void* buffer,
+ 
+     read = skt_read(in->common.audio_fd, buffer, bytes);
+ 
++    // Debug for linfayang 
++    /*
++    write_in=write(fd_sample,buffer,bytes);
++
++    if(write_in == -1)
++    {
++        ERROR("--lfy--write_in ERROR");
++    }
++    */
+     if (read == -1)
+     {
+         skt_disconnect(in->common.audio_fd);
+@@ -1016,7 +1024,6 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
+     UNUSED(flags);
+ 
+     INFO("opening output");
+-
+     out = (struct a2dp_stream_out *)calloc(1, sizeof(struct a2dp_stream_out));
+ 
+     if (!out)
+@@ -1208,6 +1215,7 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
+     struct a2dp_audio_device *a2dp_dev = (struct a2dp_audio_device *)dev;
+     struct a2dp_stream_in *in;
+     int ret;
++    int fd;
+     UNUSED(handle);
+     UNUSED(devices);
+     UNUSED(config);
+@@ -1254,7 +1262,14 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
+         ret = -1;
+         goto err_open;
+     }
+-
++    
++    /*
++    fd_sample=open("/data/sample.pmc",O_CREAT|O_RDWR,S_IRUSR|S_IWUSR);  
++    if(fd<0){  
++        ERROR("/data/sample.pmc failed (%s)", strerror(errno));
++    }  
++    ERROR("--lfy--/data/sample.pmc = %d ",fd_sample);
++    */
+     DEBUG("success");
+     return 0;
+ 
+@@ -1281,7 +1296,11 @@ static void adev_close_input_stream(struct audio_hw_device *dev,
+     skt_disconnect(in->common.ctrl_fd);
+     free(stream);
+     a2dp_dev->input = NULL;
+-
++    /*
++    if(fd_sample >0)
++        close(fd_sample);
++     ERROR("--lfy-- close /data/sample.pmc ");
++     */
+     DEBUG("done");
+ }
+ 
+diff --git a/external/bluetooth/bluedroid/bta/av/bta_av_act.c b/external/bluetooth/bluedroid/bta/av/bta_av_act.c
+index dfd3662..cccfa63 100644
+--- a/external/bluetooth/bluedroid/bta/av/bta_av_act.c
++++ b/external/bluetooth/bluedroid/bta/av/bta_av_act.c
+@@ -33,6 +33,7 @@
+ #include "bd.h"
+ #include "utl.h"
+ #include "l2c_api.h"
++#include "bt_types.h"
+ #if( defined BTA_AR_INCLUDED ) && (BTA_AR_INCLUDED == TRUE)
+ #include "bta_ar_api.h"
+ #endif
+@@ -514,7 +515,10 @@ void bta_av_rc_opened(tBTA_AV_CB *p_cb, tBTA_AV_DATA *p_data)
+         return;
+     }
+ 
+-
++    a1.q_handle=p_cb->rcb[i].handle;    		      
++    BTM_SetQoS( p_data->rc_conn_chg.peer_addr, &(a1), NULL );
++     APPL_TRACE_ERROR("--lfy--BTM_SetQoS");
++	 
+     if (p_cb->rcb[i].lidx == (BTA_AV_NUM_LINKS + 1) && shdl != 0)
+     {
+         /* rc is opened on the RC only ACP channel, but is for a specific
+diff --git a/external/bluetooth/bluedroid/btif/src/btif_av.c b/external/bluetooth/bluedroid/btif/src/btif_av.c
+index 8f3a974..247ac59 100644
+--- a/external/bluetooth/bluedroid/btif/src/btif_av.c
++++ b/external/bluetooth/bluedroid/btif/src/btif_av.c
+@@ -41,6 +41,8 @@
+ #include "bd.h"
+ #include "btu.h"
+ #include "bt_utils.h"
++#include "bt_types.h"
++
+ 
+ /*****************************************************************************
+ **  Constants & Macros
+@@ -539,7 +541,7 @@ static BOOLEAN btif_av_state_closing_handler(btif_sm_event_t event, void *p_data
+ static BOOLEAN btif_av_state_opened_handler(btif_sm_event_t event, void *p_data)
+ {
+     tBTA_AV *p_av = (tBTA_AV*)p_data;
+-
++    BD_ADDR remote_bd;
+     BTIF_TRACE_DEBUG("%s event:%s flags %x", __FUNCTION__,
+                      dump_av_sm_event_name(event), btif_av_cb.flags);
+ 
+@@ -602,6 +604,9 @@ static BOOLEAN btif_av_state_opened_handler(btif_sm_event_t event, void *p_data)
+                     btif_a2dp_on_started(NULL, TRUE);
+                 /* pending start flag will be cleared when exit current state */
+             }
++			a1.q_handle=btif_av_cb.bta_handle;
++           bdcpy(remote_bd, btif_av_cb.peer_bda.address);
++           BTM_SetQoS(remote_bd, &(a1), NULL ) ;
+             btif_sm_change_state(btif_av_cb.sm_handle, BTIF_AV_STATE_STARTED);
+ 
+         } break;
+diff --git a/external/bluetooth/bluedroid/include/bt_target.h b/external/bluetooth/bluedroid/include/bt_target.h
+index e599f13..d0a163c 100644
+--- a/external/bluetooth/bluedroid/include/bt_target.h
++++ b/external/bluetooth/bluedroid/include/bt_target.h
+@@ -168,7 +168,7 @@
+ #endif
+ 
+ #ifndef BTA_AV_SINK_INCLUDED
+-#define BTA_AV_SINK_INCLUDED FALSE
++#define BTA_AV_SINK_INCLUDED TRUE
+ #endif
+ 
+ #ifndef BTA_DISABLE_DELAY
+diff --git a/external/bluetooth/bluedroid/main/Android.mk b/external/bluetooth/bluedroid/main/Android.mk
+index 21dfa1c..ddd4c74 100644
+--- a/external/bluetooth/bluedroid/main/Android.mk
++++ b/external/bluetooth/bluedroid/main/Android.mk
+@@ -72,6 +72,22 @@ LOCAL_SRC_FILES += \
+ 	../embdrv/sbc/encoder/srce/sbc_encoder.c \
+ 	../embdrv/sbc/encoder/srce/sbc_packing.c \
+ 
++LOCAL_SRC_FILES+= \
++	../embdrv/sbc/decoder/srce/alloc.c \
++	../embdrv/sbc/decoder/srce/bitalloc.c \
++	../embdrv/sbc/decoder/srce/bitalloc-sbc.c \
++	../embdrv/sbc/decoder/srce/bitstream-decode.c \
++	../embdrv/sbc/decoder/srce/decoder-oina.c \
++	../embdrv/sbc/decoder/srce/decoder-private.c \
++	../embdrv/sbc/decoder/srce/decoder-sbc.c \
++	../embdrv/sbc/decoder/srce/dequant.c \
++	../embdrv/sbc/decoder/srce/framing.c \
++	../embdrv/sbc/decoder/srce/framing-sbc.c \
++	../embdrv/sbc/decoder/srce/oi_codec_version.c \
++	../embdrv/sbc/decoder/srce/synthesis-sbc.c \
++	../embdrv/sbc/decoder/srce/synthesis-dct8.c \
++	../embdrv/sbc/decoder/srce/synthesis-8-generated.c \
++
+ LOCAL_SRC_FILES += \
+ 	../udrv/ulinux/uipc.c
+ 
+diff --git a/external/bluetooth/bluedroid/stack/include/bt_types.h b/external/bluetooth/bluedroid/stack/include/bt_types.h
+index 617eaf3..e0be20e 100644
+--- a/external/bluetooth/bluedroid/stack/include/bt_types.h
++++ b/external/bluetooth/bluedroid/stack/include/bt_types.h
+@@ -363,6 +363,7 @@ typedef UINT8 ACO[ACO_LEN];                 /* Authenticated ciphering offset */
+ typedef UINT8 COF[COF_LEN];                 /* ciphering offset number */
+ 
+ typedef struct {
++	UINT8               q_handle;          /* TBD */
+     UINT8               qos_flags;          /* TBD */
+     UINT8               service_type;       /* see below */
+     UINT32              token_rate;         /* bytes/second */
+@@ -372,6 +373,8 @@ typedef struct {
+     UINT32              delay_variation;    /* microseconds */
+ } FLOW_SPEC;
+ 
++FLOW_SPEC a1;
++
+ /* Values for service_type */
+ #define NO_TRAFFIC      0
+ #define BEST_EFFORT     1
+diff --git a/external/bluetooth/bluedroid/stack/include/hcidefs.h b/external/bluetooth/bluedroid/stack/include/hcidefs.h
+index 0349d6a..1de284a 100644
+--- a/external/bluetooth/bluedroid/stack/include/hcidefs.h
++++ b/external/bluetooth/bluedroid/stack/include/hcidefs.h
+@@ -1325,7 +1325,10 @@ typedef struct
+ #define HCI_BRCM_ACL_PRIORITY_LOW           0x00
+ #define HCI_BRCM_ACL_PRIORITY_HIGH          0xFF
+ #define HCI_BRCM_SET_ACL_PRIORITY           (0x0057 | HCI_GRP_VENDOR_SPECIFIC)
+-
++#define HCI_BRCM_SET_A2DP_PRIORITY          (0x011A | HCI_GRP_VENDOR_SPECIFIC)
++#define HCI_BRCM_ACL_PRIORITY_NORMAL        0x00
++#define HCI_BRCM_ACL_PRIORITY_A2DP          0x01
++#define HCI_BRCM_ACL_PRIORITY_A2DP_PARAM_SIZE    4
+ /* Define values for LMP Test Control parameters
+ ** Test Scenario, Hopping Mode, Power Control Mode
+ */
+diff --git a/external/bluetooth/bluedroid/stack/l2cap/l2c_utils.c b/external/bluetooth/bluedroid/stack/l2cap/l2c_utils.c
+index 77849ac..dd39bd1 100644
+--- a/external/bluetooth/bluedroid/stack/l2cap/l2c_utils.c
++++ b/external/bluetooth/bluedroid/stack/l2cap/l2c_utils.c
+@@ -2499,6 +2499,7 @@ BOOLEAN l2cu_set_acl_priority (BD_ADDR bd_addr, UINT8 priority, BOOLEAN reset_af
+     UINT8               *pp;
+     UINT8                command[HCI_BRCM_ACL_PRIORITY_PARAM_SIZE];
+     UINT8                vs_param;
++    UINT8                type_param;
+ 
+     APPL_TRACE_EVENT("SET ACL PRIORITY %d", priority);
+ 
+@@ -2518,13 +2519,18 @@ BOOLEAN l2cu_set_acl_priority (BD_ADDR bd_addr, UINT8 priority, BOOLEAN reset_af
+         {
+             pp = command;
+ 
+-            vs_param = (priority == L2CAP_PRIORITY_HIGH) ? HCI_BRCM_ACL_PRIORITY_HIGH : HCI_BRCM_ACL_PRIORITY_LOW;
+-
+-            UINT16_TO_STREAM (pp, p_lcb->handle);
+-            UINT8_TO_STREAM  (pp, vs_param);
+-
+-            BTM_VendorSpecificCommand (HCI_BRCM_SET_ACL_PRIORITY, HCI_BRCM_ACL_PRIORITY_PARAM_SIZE, command, NULL);
+-
++            //vs_param = (priority == L2CAP_PRIORITY_HIGH) ? HCI_BRCM_ACL_PRIORITY_HIGH : HCI_BRCM_ACL_PRIORITY_LOW;
++            vs_param = (priority == L2CAP_PRIORITY_HIGH) ? HCI_BRCM_ACL_PRIORITY_A2DP: HCI_BRCM_ACL_PRIORITY_NORMAL;
++            type_param = 0x01;
++ 
++            L2CAP_TRACE_ERROR("--lfy--: SET ACL PRIORITY %d", priority);
++             UINT16_TO_STREAM (pp, p_lcb->handle);
++             UINT8_TO_STREAM  (pp, vs_param);
++            UINT8_TO_STREAM  (pp, type_param);
++ 
++            //BTM_VendorSpecificCommand (HCI_BRCM_SET_ACL_PRIORITY, HCI_BRCM_ACL_PRIORITY_PARAM_SIZE, command, NULL);
++            BTM_VendorSpecificCommand (HCI_BRCM_SET_A2DP_PRIORITY, HCI_BRCM_ACL_PRIORITY_A2DP_PARAM_SIZE, command, NULL);
++ 
+             /* Adjust lmp buffer allocation for this channel if priority changed */
+             if (p_lcb->acl_priority != priority)
+             {
+diff --git a/frameworks/av/services/audiopolicy/AudioPolicyManager.cpp b/frameworks/av/services/audiopolicy/AudioPolicyManager.cpp
+index ddb3c25..4658968 100644
+--- a/frameworks/av/services/audiopolicy/AudioPolicyManager.cpp
++++ b/frameworks/av/services/audiopolicy/AudioPolicyManager.cpp
+@@ -5859,6 +5859,11 @@ audio_devices_t AudioPolicyManager::getDeviceForInputSource(audio_source_t input
+             device = AUDIO_DEVICE_IN_FM_TUNER;
+         }
+         break;
++     case AUDIO_SOURCE_BLUETOOTH_A2DP:
++        if (availableDeviceTypes & AUDIO_DEVICE_IN_BLUETOOTH_A2DP) {
++           device = AUDIO_DEVICE_IN_BLUETOOTH_A2DP;
++        }
++        break;
+     default:
+         ALOGW("getDeviceForInputSource() invalid input source %d", inputSource);
+         break;
+diff --git a/frameworks/base/media/java/android/media/AudioAttributes.java b/frameworks/base/media/java/android/media/AudioAttributes.java
+index e221e85..fc5a17f 100644
+--- a/frameworks/base/media/java/android/media/AudioAttributes.java
++++ b/frameworks/base/media/java/android/media/AudioAttributes.java
+@@ -540,7 +540,8 @@ public final class AudioAttributes implements Parcelable {
+         public Builder setInternalCapturePreset(int preset) {
+             if ((preset == MediaRecorder.AudioSource.HOTWORD)
+                     || (preset == MediaRecorder.AudioSource.REMOTE_SUBMIX)
+-                    || (preset == MediaRecorder.AudioSource.FM_TUNER)) {
++                    || (preset == MediaRecorder.AudioSource.FM_TUNER)
++                    || (preset == MediaRecorder.AudioSource.BLUETOOTH_A2DP)) {
+                 mSource = preset;
+             } else {
+                 setCapturePreset(preset);
+diff --git a/frameworks/base/media/java/android/media/AudioManager.java b/frameworks/base/media/java/android/media/AudioManager.java
+index 240faef..ba1f577 100644
+--- a/frameworks/base/media/java/android/media/AudioManager.java
++++ b/frameworks/base/media/java/android/media/AudioManager.java
+@@ -1632,8 +1632,11 @@ public class AudioManager {
+      *         false if otherwise
+      */
+     public boolean isBluetoothA2dpOn() {
+-        if (AudioSystem.getDeviceConnectionState(DEVICE_OUT_BLUETOOTH_A2DP,"")
+-            == AudioSystem.DEVICE_STATE_UNAVAILABLE) {
++        if ((AudioSystem.getDeviceConnectionState(DEVICE_OUT_BLUETOOTH_A2DP,"")
++            == AudioSystem.DEVICE_STATE_UNAVAILABLE) || 
++            (AudioSystem.getDeviceConnectionState(DEVICE_IN_BLUETOOTH_A2DP,"")
++                == AudioSystem.DEVICE_STATE_UNAVAILABLE)) 
++        {
+             return false;
+         } else {
+             return true;
+@@ -3028,6 +3031,11 @@ public class AudioManager {
+     /** @hide
+      * The audio output device code for generic Bluetooth A2DP, for music */
+     public static final int DEVICE_OUT_BLUETOOTH_A2DP = AudioSystem.DEVICE_OUT_BLUETOOTH_A2DP;
++
++	/** @hide
++	*/
++    public static final int DEVICE_IN_BLUETOOTH_A2DP = AudioSystem.DEVICE_IN_BLUETOOTH_A2DP;
++
+     /** @hide
+      * The audio output device code for Bluetooth A2DP headphones, for music */
+     public static final int DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES =
+diff --git a/frameworks/base/media/java/android/media/MediaRecorder.java b/frameworks/base/media/java/android/media/MediaRecorder.java
+index 1df93b5..ccb8a97 100755
+--- a/frameworks/base/media/java/android/media/MediaRecorder.java
++++ b/frameworks/base/media/java/android/media/MediaRecorder.java
+@@ -264,6 +264,12 @@ public class MediaRecorder
+          */
+         public static final int REMOTE_SUBMIX = 8;
+ 
++	/**
++	* @hide
++	* A2DP audio.
++	*/
++	public static final int BLUETOOTH_A2DP = 9;
++
+         /**
+          * Audio source for FM, which is used to capture current FM tuner output by FMRadio app.
+          * There are two use cases, one is for record FM stream for later listening, another is
+@@ -418,7 +424,8 @@ public class MediaRecorder
+      * @see android.media.MediaRecorder.AudioSource
+      */
+     public static final int getAudioSourceMax() {
+-        return AudioSource.REMOTE_SUBMIX;
++        //return AudioSource.REMOTE_SUBMIX;
++ 	return AudioSource.BLUETOOTH_A2DP;
+     }
+ 
+     /**
+diff --git a/hardware/A2dpSinkService/Android.mk b/hardware/A2dpSinkService/Android.mk
+new file mode 100644
+index 0000000..e73046a
+--- /dev/null
++++ b/hardware/A2dpSinkService/Android.mk
+@@ -0,0 +1,11 @@
++LOCAL_PATH:= $(call my-dir)
++include $(CLEAR_VARS)
++
++LOCAL_MODULE_TAGS := optional
++
++LOCAL_SRC_FILES := $(call all-subdir-java-files)
++
++LOCAL_PACKAGE_NAME := TCLA2dpSinkService
++LOCAL_CERTIFICATE := platform
++
++include $(BUILD_PACKAGE)
+diff --git a/hardware/A2dpSinkService/AndroidManifest.xml b/hardware/A2dpSinkService/AndroidManifest.xml
+new file mode 100644
+index 0000000..9c0406d
+--- /dev/null
++++ b/hardware/A2dpSinkService/AndroidManifest.xml
+@@ -0,0 +1,42 @@
++<?xml version="1.0" encoding="utf-8"?>
++<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    package="cn.com.realsil.a2dpsinkservice"
++    android:versionCode="1"
++    android:versionName="1.0" >
++
++    <uses-sdk
++        android:minSdkVersion="11"
++        android:targetSdkVersion="20" />
++
++    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
++    <uses-permission android:name="android.permission.RECORD_AUDIO" />
++    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
++    <uses-permission android:name="android.permission.BROADCAST_STICKY" />
++    <uses-permission android:name="android.permission.BLUETOOTH" />
++    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
++    <uses-permission android:name="android.permission.INTERNET" />
++    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
++    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
++    <application
++        android:allowBackup="true"
++        android:icon="@mipmap/ic_launcher"
++        android:label="@string/app_name"
++        android:theme="@style/AppTheme" >
++        <service
++            android:name=".TCLA2dpSinkService"
++            android:enabled="true"
++            android:exported="true" >
++        </service>
++
++        <receiver
++            android:name=".TCLA2dpSinkReceiver"
++            android:enabled="true"
++            android:exported="true" >
++            <intent-filter>
++                <action android:name="android.intent.action.BOOT_COMPLETED" />
++                <action android:name="android.bluetooth.a2dpsink.profile.action.CONNECTION_STATE_CHANGED" />
++            </intent-filter>
++        </receiver>
++    </application>
++
++</manifest>
+diff --git a/hardware/A2dpSinkService/java/cn/com/realsil/a2dpsinkservice/TCLA2dpSinkReceiver.java b/hardware/A2dpSinkService/java/cn/com/realsil/a2dpsinkservice/TCLA2dpSinkReceiver.java
+new file mode 100644
+index 0000000..869ebe7
+--- /dev/null
++++ b/hardware/A2dpSinkService/java/cn/com/realsil/a2dpsinkservice/TCLA2dpSinkReceiver.java
+@@ -0,0 +1,76 @@
++package cn.com.realsil.a2dpsinkservice;
++
++import android.app.Activity;
++import android.os.Bundle;
++import android.view.View;
++import android.view.Menu;
++import android.view.MenuItem;
++import android.widget.Button;
++import android.view.View.OnClickListener;
++import android.util.Log;
++import android.bluetooth.BluetoothAdapter;
++import android.bluetooth.BluetoothA2dp;
++import android.bluetooth.BluetoothA2dpSink;
++import android.bluetooth.BluetoothProfile;
++import android.content.BroadcastReceiver;
++import android.content.Context;
++import android.content.Intent;
++import android.content.IntentFilter;
++import android.media.AudioManager;
++import android.media.AudioFormat;
++import android.media.AudioRecord;
++import android.media.AudioTrack;
++import android.media.MediaRecorder;
++import java.io.File;
++import android.os.Environment;
++import java.io.DataOutputStream;
++import java.io.BufferedOutputStream;
++import java.io.FileOutputStream;
++import java.io.OutputStream;
++import android.content.IntentFilter;
++
++public class TCLA2dpSinkReceiver extends BroadcastReceiver {
++
++    private static final String TAG = "TCLA2dpSinkReceiver";
++    public static final String A2DP_SINK_STATE_CHANGED_ACTION = "android.bluetooth.a2dpsink.profile.action.CONNECTION_STATE_CHANGED";
++    public static final int A2DP_SOURCE_STATE_DISCONNECT = 0;
++    public static final int A2DP_SOURCE_STATE_CONNECTING = 1;
++    public static final int A2DP_SOURCE_STATE_CONNECTED = 2;
++    public static final int A2DP_SOURCE_STATE_DISCONNECTING = 3;
++    public static final int A2DP_SOURCE_STATE_UNKNOWN = 4;
++
++    private IntentFilter filter;
++
++    public TCLA2dpSinkReceiver() {
++    }
++
++    @Override
++    public void onReceive(Context context, Intent intent) {
++        // TODO: This method is called when the BroadcastReceiver is receiving
++        // an Intent broadcast.
++        
++/*
++        if (intent.getAction().equals("android.intent.action.BOOT_COMPLETED"))
++	{
++           Intent in = new Intent(context, TCLA2dpSinkService.class);
++           context.startService(in);
++	}
++*/	
++        if (intent.getAction().equals(A2DP_SINK_STATE_CHANGED_ACTION)) {
++            int A2dpSourceState = intent.getIntExtra(BluetoothProfile.EXTRA_STATE, -1);
++            Log.e(TAG, "receive a2dp sink intent state:" + A2dpSourceState);
++            if (BluetoothProfile.STATE_CONNECTED == A2dpSourceState) {
++                Log.e(TAG, "sink state connect");
++                Intent in = new Intent(context, TCLA2dpSinkService.class);
++                context.startService(in);
++            }
++            if (BluetoothProfile.STATE_DISCONNECTED == A2dpSourceState) {
++                Log.e(TAG, "sink state disconnect");
++				Intent in = new Intent(context, TCLA2dpSinkService.class);
++                context.stopService(in);
++            }
++        }
++	
++
++    }
++}
+diff --git a/hardware/A2dpSinkService/java/cn/com/realsil/a2dpsinkservice/TCLA2dpSinkService.java b/hardware/A2dpSinkService/java/cn/com/realsil/a2dpsinkservice/TCLA2dpSinkService.java
+new file mode 100644
+index 0000000..4bef493
+--- /dev/null
++++ b/hardware/A2dpSinkService/java/cn/com/realsil/a2dpsinkservice/TCLA2dpSinkService.java
+@@ -0,0 +1,431 @@
++package cn.com.realsil.a2dpsinkservice;
++
++import android.app.Service;
++import android.content.Intent;
++import android.os.IBinder;
++import android.os.Bundle;
++import android.util.Log;
++import android.bluetooth.BluetoothAdapter;
++import android.bluetooth.BluetoothA2dp;
++import android.bluetooth.BluetoothA2dpSink;
++import android.bluetooth.BluetoothProfile;
++import android.content.BroadcastReceiver;
++import android.content.Context;
++import android.content.Intent;
++import android.content.IntentFilter;
++import android.media.AudioManager;
++import android.media.AudioFormat;
++import android.media.AudioRecord;
++import android.media.AudioTrack;
++import android.media.MediaRecorder;
++import java.io.File;
++import android.os.Environment;
++import java.io.DataOutputStream;
++import java.io.DataInputStream;
++import java.io.BufferedOutputStream;
++import java.io.FileOutputStream;
++import java.io.OutputStream;
++import java.io.InputStream;
++
++import java.io.InputStreamReader;
++import java.io.OutputStreamWriter;
++import java.io.Reader;
++import java.io.Writer;
++import java.net.ServerSocket;
++import java.net.Socket;
++
++import android.net.LocalServerSocket;
++import android.net.LocalSocket;
++import android.net.LocalSocketAddress;
++import android.view.KeyEvent;
++
++public class TCLA2dpSinkService extends Service {
++
++    private static final String TAG = "TCLA2dpSinkService";
++
++    private BluetoothAdapter mAdapter;
++    private BluetoothA2dp mBluetoothA2dp;
++	private BluetoothA2dpSink mBluetoothA2dpSink;
++	
++    private AudioRecord mRecord;
++    private AudioTrack mPlayer;
++
++    File file;
++    OutputStream os;
++    BufferedOutputStream bos;
++    DataOutputStream dos;
++    File file2;
++    OutputStream os2;
++    BufferedOutputStream bos2;
++    DataOutputStream dos2;
++
++    private int mPcmBufflen;
++    private int mTrackBufflen;
++    private boolean mNeedRecord = false;
++    private boolean mNeedThread = false;
++    private boolean mNeedAPK = false;
++    private boolean mplaythread = false;
++    private boolean last_thread_exit = true;
++
++    public static final String A2DP_SOURCE_STATE_CHANGED_ACTION = "android.bluetooth.a2dp-sink.profile.action.CONNECTION_STATE_CHANGED";
++    public static final int A2DP_SOURCE_STATE_DISCONNECT = 0;
++    public static final int A2DP_SOURCE_STATE_CONNECTING = 1;
++    public static final int A2DP_SOURCE_STATE_CONNECTED = 2;
++    public static final int A2DP_SOURCE_STATE_DISCONNECTING = 3;
++    public static final int A2DP_SOURCE_STATE_UNKNOWN = 4;
++
++    public static final String A2DP_AUDIO_STATE_CHANGED_ACTION = "android.bluetooth.a2dp-sink.profile.action.PLAYING_STATE_CHANGED";
++    public final static int AUDIO_STATE_REMOTE_SUSPEND = 0;
++    public final static int AUDIO_STATE_STOPPED = 11;
++    public final static int AUDIO_STATE_STARTED = 10;
++    public final static int AUDIO_STATE_UNKNOWN = 3;
++
++    private LocalSocket mreceiver, msender;
++    private LocalServerSocket mlss;
++    InputStream fis;
++    OutputStream fos;
++
++    public TCLA2dpSinkService() {
++    }
++
++    @Override
++    public void onCreate()
++    {
++        mAdapter = null;
++        mBluetoothA2dp = null;
++		mBluetoothA2dpSink = null;
++        mRecord = null;
++        mPlayer = null;
++    }
++    @Override
++    public int onStartCommand(Intent intent, int flags, int startId)
++    {
++        int retCode = super.onStartCommand(intent,flags,startId);
++        mAdapter = BluetoothAdapter.getDefaultAdapter();
++        if (mAdapter == null) {
++            Log.d(TAG, "mAdapter null");
++            return retCode;
++        }
++        mAdapter.getProfileProxy(this, mProfileListener, BluetoothProfile.A2DP_SINK);
++
++        IntentFilter mA2dpSourceStateFilter = new IntentFilter(A2DP_SOURCE_STATE_CHANGED_ACTION);
++        registerReceiver(mA2dpSourceStateReceiver, mA2dpSourceStateFilter);
++
++        IntentFilter mA2dpAudioStateFilter = new IntentFilter(A2DP_AUDIO_STATE_CHANGED_ACTION);
++        registerReceiver(mA2dpAudioStateReceiver, mA2dpAudioStateFilter);
++
++        mplaythread = false;
++        mNeedAPK = true;
++        try{
++			
++            mPcmBufflen = AudioRecord.getMinBufferSize(
++                    44100, AudioFormat.CHANNEL_IN_STEREO,
++                    AudioFormat.ENCODING_PCM_16BIT);
++            mRecord = new AudioRecord(
++                    MediaRecorder.AudioSource.MIC,
++                    44100, AudioFormat.CHANNEL_IN_STEREO,
++                    AudioFormat.ENCODING_PCM_16BIT, mPcmBufflen*8);
++			/*
++			mRecord = findAudioRecord();
++			if(mRecord == null)
++				Log.e(TAG, "record initial fail");
++			*/
++            mTrackBufflen = AudioTrack.getMinBufferSize(
++                    44100, AudioFormat.CHANNEL_OUT_STEREO,
++                    AudioFormat.ENCODING_PCM_16BIT);
++            mPlayer= new AudioTrack(
++                    AudioManager.STREAM_MUSIC,
++                    44100, AudioFormat.CHANNEL_OUT_STEREO,
++                    AudioFormat.ENCODING_PCM_16BIT, mTrackBufflen*8, AudioTrack.MODE_STREAM);
++            file = new File(Environment.getExternalStorageDirectory().getAbsolutePath() + "/a2dpsink.pcm");
++            os = new FileOutputStream(file);
++            bos = new BufferedOutputStream(os);
++            dos = new DataOutputStream(bos);
++            file2 = new File(Environment.getExternalStorageDirectory().getAbsolutePath() + "/a2dpsink2.pcm");
++            os2 = new FileOutputStream(file2);
++            bos2 = new BufferedOutputStream(os2);
++            dos2 = new DataOutputStream(bos2);
++        } catch (Exception ex) {
++            if (mRecord != null) {
++                mRecord.release();
++                mRecord = null;
++            }
++            if (mPlayer != null) {
++                mPlayer.release();
++                mPlayer = null;
++            }
++        }
++
++        try {
++                new PlayThread().start();
++                mNeedThread = true;
++                new ReadThread().start();
++        } catch (Exception ex) {
++                mNeedThread = false;
++        }
++
++        try {
++            mlss = new LocalServerSocket("A2dpSinkSocket");
++            msender = new LocalSocket();
++            msender.connect(new LocalSocketAddress("A2dpSinkSocket"));
++            msender.setReceiveBufferSize(50000000);
++            msender.setSendBufferSize(50000000);
++            mreceiver = mlss.accept();
++            mreceiver.setReceiveBufferSize(50000000);
++            mreceiver.setSendBufferSize(50000000);
++        } catch (Exception ex) {
++            Log.e(TAG, "socket setup error" + ex);
++        }
++        try {
++            fis = mreceiver.getInputStream();
++        } catch (Exception ex) {
++            Log.e(TAG, "get receiver inputstream error");
++        }
++
++        try {
++            fos = msender.getOutputStream();
++        } catch (Exception ex) {
++            Log.e(TAG, "get sender outputstream error");
++        }
++        return retCode;
++    }
++
++	private AudioRecord findAudioRecord() {
++        // TODO Auto-generated method stub
++           for (int rate : new int[]{44100,48000}) {
++               for (short audioFormat : new short[] { AudioFormat.ENCODING_PCM_8BIT, AudioFormat.ENCODING_PCM_16BIT }) {
++                   for (short channelConfig : new short[] { AudioFormat.CHANNEL_IN_STEREO ,AudioFormat.CHANNEL_IN_MONO}) {
++                       try {
++								Log.d(TAG, "Attempting rate " + rate + "Hz, bits: " + audioFormat + ", channel: " + channelConfig);
++								int bufferSize = AudioRecord.getMinBufferSize(rate, channelConfig, audioFormat);
++								if (bufferSize != AudioRecord.ERROR_BAD_VALUE) {
++                               // check if we can instantiate and have a success
++									AudioRecord recorder = new AudioRecord(MediaRecorder.AudioSource.MIC, rate, channelConfig, audioFormat, bufferSize);
++									if (recorder.getState() == AudioRecord.STATE_INITIALIZED)
++									{
++										Log.e(TAG, "Attempting rate " + rate + "Hz, bits: " + audioFormat + ", channel: " + channelConfig);
++										return recorder;
++									}
++                                        
++                           }
++                       } catch (Exception e) {
++                           Log.e("AudiopRecording", rate + "Exception, keep trying.",e);
++                       }
++                   }
++               }
++           }
++        return null;
++    }
++	
++    @Override
++    public IBinder onBind(Intent intent) {
++        // TODO: Return the communication channel to the service.
++        throw new UnsupportedOperationException("Not yet implemented");
++    }
++
++    @Override
++    public boolean onUnbind(Intent intent)
++    {
++        // All clients have unbound with unbindService()
++        return true;
++    }
++
++    @Override
++    public void onRebind(Intent intent)
++    {
++        // A client is binding to the service with bindService(),
++        // after onUnbind() has already been called
++    }
++
++    @Override
++    public void onDestroy()
++    {
++        // The service is no longer used and is being destroyed
++        super.onDestroy();
++        Log.e(TAG, "on destroy");
++
++        if (mAdapter != null)
++        {
++            mAdapter.closeProfileProxy(BluetoothProfile.A2DP_SINK, mBluetoothA2dpSink);
++        }
++
++        if (mRecord != null) {
++            try {
++                Log.e(TAG, "record release");
++                mRecord.stop();
++                mRecord.release();
++                mRecord = null;
++            }catch (Exception ex) {
++                Log.e(TAG, "record release error: " + ex);
++            }
++        }
++        if (mPlayer != null) {
++            try {
++                Log.e(TAG, "player release");
++                mPlayer.stop();
++                mPlayer.release();
++                mPlayer = null;
++            }catch (Exception ex) {
++                Log.e(TAG, "player release error: " + ex);
++            }
++        }
++
++        try {
++            fis.close();
++            mreceiver.close();
++            mlss.close();
++            fos.close();
++            msender.close();
++            fis = null;
++            mreceiver = null;
++            mlss = null;
++            fos = null;
++            msender = null;
++        }catch (Exception ex) {
++            Log.e(TAG, "socket close error");
++        }
++
++        unregisterReceiver(mA2dpSourceStateReceiver);
++        unregisterReceiver(mA2dpAudioStateReceiver);
++    }
++
++    private BluetoothProfile.ServiceListener mProfileListener =
++            new BluetoothProfile.ServiceListener() {
++                public void onServiceConnected(int profile, BluetoothProfile proxy) {
++                    Log.d(TAG, "bluetooth a2dp sink service connected");
++                    mBluetoothA2dpSink = (BluetoothA2dpSink) proxy;
++                }
++                public void onServiceDisconnected(int profile) {
++                    Log.d(TAG, "bluetooth a2dp sink service disconnected");
++                    mBluetoothA2dpSink = null;
++                }
++            };
++    private final BroadcastReceiver mA2dpSourceStateReceiver = new BroadcastReceiver() {
++        @Override
++        public void onReceive(Context context, Intent intent) {
++            if (intent.getAction().equals(A2DP_SOURCE_STATE_CHANGED_ACTION)) {
++                int A2dpSourceState = intent.getIntExtra(BluetoothProfile.EXTRA_STATE,-1);
++                Log.e(TAG, "receive a2dp sink intent state:" + A2dpSourceState);
++                if(A2DP_SOURCE_STATE_CONNECTED == A2dpSourceState){
++                    Log.e(TAG, " sink state connect");
++
++		if(mRecord == null)
++			mRecord = findAudioRecord();
++                }
++
++                if(A2DP_SOURCE_STATE_DISCONNECT == A2dpSourceState){
++                    Log.e(TAG, " sink state disconnect..........");
++                    if(mPlayer != null)
++                        mPlayer.stop();
++                    if(mRecord != null)
++                        mRecord.stop();
++                    mNeedRecord = false;
++                    mplaythread = false;
++
++                }
++            }
++            else {
++                Log.e(TAG, "received an unknown a2dp source intent");
++            }
++        }
++    };
++
++    private final BroadcastReceiver mA2dpAudioStateReceiver = new BroadcastReceiver() {
++        @Override
++        public void onReceive(Context context, Intent intent) {
++            if (intent.getAction().equals(A2DP_AUDIO_STATE_CHANGED_ACTION)) {
++                int A2dpAudioState = intent.getIntExtra(BluetoothProfile.EXTRA_STATE,-1);
++                Log.e(TAG, "receive a2dp audio intent state:" + A2dpAudioState);
++
++                if(AUDIO_STATE_STARTED == A2dpAudioState){
++                    Log.e(TAG, "using as sink, start audio");
++                    if(mRecord != null)
++                        mRecord.startRecording();
++					else
++						mRecord = findAudioRecord();
++                    if(mPlayer != null)
++                        mPlayer.play();
++                    mplaythread = true;
++                    mNeedRecord = true;
++                }
++
++                if(AUDIO_STATE_STOPPED == A2dpAudioState){
++                    Log.e(TAG, "using as sink, stop audio");
++                    if(mPlayer != null)
++                        mPlayer.stop();
++                    if(mRecord != null)
++                        mRecord.stop();
++                     mplaythread = false;
++                    mNeedRecord = false;
++                }
++
++            }
++            else {
++                Log.e(TAG, "received an unknown a2dp audio intent");
++            }
++        }
++    };
++
++    private class ReadThread extends Thread {
++        public void run() {
++            int total = 0, len;
++            byte[] buffer = new byte[mPcmBufflen];
++            last_thread_exit = false;
++
++            while (mNeedThread) {
++                if(mNeedRecord){
++                    if(mRecord != null){
++                        int bufferReadResult = mRecord.read(buffer, 0, mPcmBufflen);
++                        try {
++                            fos.write(buffer, 0, bufferReadResult);
++                        }catch (Exception ex) {
++                            Log.e(TAG, "socket write error " + ex);
++                        }
++                    }
++                }
++            }
++
++            Log.e(TAG, "read thread existing");
++            last_thread_exit = true;
++            /*if (mRecord != null) {
++                mRecord.stop();
++                mRecord.release();
++                mRecord = null;
++            }*/
++        }
++    }
++
++    private class PlayThread extends Thread {
++        byte bytes[] = new byte[mTrackBufflen*2];
++        int len;
++        public void run() {
++            if (mPlayer != null)
++                mPlayer.play();
++            while (mNeedAPK) {
++		if(mplaythread){
++                try {
++                    if (fis != null)
++                    {
++                        len = fis.read(bytes);
++                    }
++                    else
++                        Log.e(TAG, "inputstream is null");
++                } catch (Exception ex){
++                    Log.e(TAG, "server socket read error");
++                }
++
++                if ((len > 0) && (mPlayer != null)){
++                    int len2 = mPlayer.write(bytes, 0, len);
++					mPlayer.flush();
++                	}
++           	 }
++	    }
++            Log.e(TAG, "play thread existing");
++            /*if (mPlayer != null) {
++                mPlayer.stop();
++                mPlayer.release();
++                mPlayer = null;
++            }*/
++        }
++    }
++}
+diff --git a/hardware/A2dpSinkService/res/mipmap-hdpi/ic_launcher.png b/hardware/A2dpSinkService/res/mipmap-hdpi/ic_launcher.png
+new file mode 100644
+index 0000000..cde69bc
+Binary files /dev/null and b/hardware/A2dpSinkService/res/mipmap-hdpi/ic_launcher.png differ
+diff --git a/hardware/A2dpSinkService/res/mipmap-mdpi/ic_launcher.png b/hardware/A2dpSinkService/res/mipmap-mdpi/ic_launcher.png
+new file mode 100644
+index 0000000..c133a0c
+Binary files /dev/null and b/hardware/A2dpSinkService/res/mipmap-mdpi/ic_launcher.png differ
+diff --git a/hardware/A2dpSinkService/res/mipmap-xhdpi/ic_launcher.png b/hardware/A2dpSinkService/res/mipmap-xhdpi/ic_launcher.png
+new file mode 100644
+index 0000000..bfa42f0
+Binary files /dev/null and b/hardware/A2dpSinkService/res/mipmap-xhdpi/ic_launcher.png differ
+diff --git a/hardware/A2dpSinkService/res/mipmap-xxhdpi/ic_launcher.png b/hardware/A2dpSinkService/res/mipmap-xxhdpi/ic_launcher.png
+new file mode 100644
+index 0000000..324e72c
+Binary files /dev/null and b/hardware/A2dpSinkService/res/mipmap-xxhdpi/ic_launcher.png differ
+diff --git a/hardware/A2dpSinkService/res/values/strings.xml b/hardware/A2dpSinkService/res/values/strings.xml
+new file mode 100644
+index 0000000..49fd71d
+--- /dev/null
++++ b/hardware/A2dpSinkService/res/values/strings.xml
+@@ -0,0 +1,3 @@
++<resources>
++    <string name="app_name">A2dpSinkService</string>
++</resources>
+diff --git a/hardware/A2dpSinkService/res/values/styles.xml b/hardware/A2dpSinkService/res/values/styles.xml
+new file mode 100644
+index 0000000..5fdb695
+--- /dev/null
++++ b/hardware/A2dpSinkService/res/values/styles.xml
+@@ -0,0 +1,5 @@
++<resources>
++
++    <style name="AppTheme" parent="android:Theme.Light" />
++
++</resources>
+diff --git a/hardware/libhardware_legacy/audio/AudioPolicyManagerBase.cpp b/hardware/libhardware_legacy/audio/AudioPolicyManagerBase.cpp
+index 74070fd..c4ff93f 100644
+--- a/hardware/libhardware_legacy/audio/AudioPolicyManagerBase.cpp
++++ b/hardware/libhardware_legacy/audio/AudioPolicyManagerBase.cpp
+@@ -2954,6 +2954,12 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForInputSource(int inputSource)
+             device = AUDIO_DEVICE_IN_REMOTE_SUBMIX;
+         }
+         break;
++    case AUDIO_SOURCE_BLUETOOTH_A2DP:
++        if (mAvailableInputDevices & AUDIO_DEVICE_IN_BLUETOOTH_A2DP) {
++            device = AUDIO_DEVICE_IN_BLUETOOTH_A2DP;
++        }
++        break;
++		
+     default:
+         ALOGW("getDeviceForInputSource() invalid input source %d", inputSource);
+         break;
+diff --git a/kernel/cht/drivers/tty/serial/hsu/hsu_core.c b/kernel/cht/drivers/tty/serial/hsu/hsu_core.c
+index ceb3dda..e9c2bcd 100644
+--- a/kernel/cht/drivers/tty/serial/hsu/hsu_core.c
++++ b/kernel/cht/drivers/tty/serial/hsu/hsu_core.c
+@@ -1823,7 +1823,7 @@ static void serial_hsu_command(struct uart_hsu_port *up)
+ 						 */
+ 						up->dma_ops->stop_rx(up);
+ 						receive_chars(up, &lsr);
+-					} //else
++					} else
+ 					up->dma_ops->start_rx(up);
+ 				}
+ 			}
+diff --git a/packages/apps/Bluetooth/AndroidManifest.xml b/packages/apps/Bluetooth/AndroidManifest.xml
+index e879a75..7df66b5 100644
+--- a/packages/apps/Bluetooth/AndroidManifest.xml
++++ b/packages/apps/Bluetooth/AndroidManifest.xml
+@@ -17,6 +17,7 @@
+         android:description="@string/permdesc_bluetoothWhitelist"
+         android:protectionLevel="signature" />
+ 
++    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+     <uses-permission android:name="android.permission.ACCESS_BLUETOOTH_SHARE" />
+     <uses-permission android:name="android.permission.INTERNET" />
+diff --git a/packages/apps/Bluetooth/res/values/config.xml b/packages/apps/Bluetooth/res/values/config.xml
+index f2b4ebb..dff42da 100644
+--- a/packages/apps/Bluetooth/res/values/config.xml
++++ b/packages/apps/Bluetooth/res/values/config.xml
+@@ -14,7 +14,7 @@
+ -->
+ <resources>
+     <bool name="profile_supported_a2dp">true</bool>
+-    <bool name="profile_supported_a2dp_sink">false</bool>
++    <bool name="profile_supported_a2dp_sink">true</bool>
+     <bool name="profile_supported_hdp">true</bool>
+     <bool name="profile_supported_hs_hfp">true</bool>
+     <bool name="profile_supported_hfpclient">false</bool>
+diff --git a/packages/apps/Bluetooth/src/com/android/bluetooth/a2dp/A2dpSinkStateMachine.java b/packages/apps/Bluetooth/src/com/android/bluetooth/a2dp/A2dpSinkStateMachine.java
+index d57a0ca..670b084 100644
+--- a/packages/apps/Bluetooth/src/com/android/bluetooth/a2dp/A2dpSinkStateMachine.java
++++ b/packages/apps/Bluetooth/src/com/android/bluetooth/a2dp/A2dpSinkStateMachine.java
+@@ -38,6 +38,9 @@ import android.bluetooth.IBluetooth;
+ import android.content.Context;
+ import android.media.AudioFormat;
+ import android.media.AudioManager;
++import android.media.AudioRecord;
++import android.media.AudioTrack;
++import android.media.MediaRecorder.AudioSource;
+ import android.os.Handler;
+ import android.os.Message;
+ import android.os.ParcelUuid;
+@@ -61,7 +64,14 @@ import java.util.HashMap;
+ import java.util.Set;
+ 
+ final class A2dpSinkStateMachine extends StateMachine {
+-    private static final boolean DBG = false;
++   // private AudioRecord recorder;
++   // private AudioTrack player;
++   // private int recorder_buf_size;
++   // private int player_buf_size;
++   // private boolean mThreadExitFlag = false;
++   // private boolean isPlaying = false;
++	
++    private static final boolean DBG = true;
+ 
+     static final int CONNECT = 1;
+     static final int DISCONNECT = 2;
+@@ -138,8 +148,62 @@ final class A2dpSinkStateMachine extends StateMachine {
+         mIntentBroadcastHandler = new IntentBroadcastHandler();
+ 
+         mAudioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
++	//	recorder_buf_size = AudioRecord.getMinBufferSize(44100, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT);
++      //  player_buf_size = AudioTrack.getMinBufferSize(44100, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT);
+     }
+-
++    
++//	private void cleanAudioTrack()
++	//	{
++	//		audioPause();
++	//		mThreadExitFlag = true;
++	//		if (recorder != null) {
++		//		recorder.release();
++		//		recorder = null;
++		//	}
++		//	if (player != null) {
++		//		player.release();
++		//		player = null;
++		//	}
++	//	}
++		//private void initAudioTrack() 
++		//{
++		//	if (recorder == null) {
++			//	recorder = new AudioRecord(AudioSource.BLUETOOTH_A2DP,
++			//		44100,
++				//	AudioFormat.CHANNEL_IN_STEREO,
++				//	AudioFormat.ENCODING_PCM_16BIT,
++				//	recorder_buf_size
++				//	);
++			//}
++	
++			//if (player == null) {
++			//	player = new AudioTrack(AudioManager.STREAM_MUSIC,
++			//		44100,
++			//		AudioFormat.CHANNEL_OUT_STEREO,
++			//		AudioFormat.ENCODING_PCM_16BIT,
++			//		player_buf_size,
++			//		AudioTrack.MODE_STREAM
++			//		);
++			//}
++		//}
++		//private void audioPlay()
++		//{
++		//	initAudioTrack();
++		//	if (isPlaying == false) {
++			//	isPlaying = true;
++			//	mThreadExitFlag = false;
++			//	new RecordThread().start();
++			//}
++		//}
++		//private void audioPause()
++		//{
++		//	if (isPlaying == true) {
++			//	isPlaying = false;
++			//	mThreadExitFlag = true;
++			//	recorder.stop();
++			//	player.stop();
++			//}
++		//}
+     static A2dpSinkStateMachine make(A2dpSinkService svc, Context context) {
+         Log.d("A2dpSinkStateMachine", "make");
+         A2dpSinkStateMachine a2dpSm = new A2dpSinkStateMachine(svc, context);
+@@ -167,6 +231,8 @@ final class A2dpSinkStateMachine extends StateMachine {
+         @Override
+         public void enter() {
+             log("Enter Disconnected: " + getCurrentMessage().what);
++			
++			//cleanAudioTrack();
+         }
+ 
+         @Override
+@@ -578,11 +644,13 @@ final class A2dpSinkStateMachine extends StateMachine {
+             }
+             switch (state) {
+                 case AUDIO_STATE_STARTED:
++				    //audioPlay();
+                     broadcastAudioState(device, BluetoothA2dpSink.STATE_PLAYING,
+                                         BluetoothA2dpSink.STATE_NOT_PLAYING);
+                     break;
+                 case AUDIO_STATE_REMOTE_SUSPEND:
+                 case AUDIO_STATE_STOPPED:
++				    //audioPause();
+                     broadcastAudioState(device, BluetoothA2dpSink.STATE_NOT_PLAYING,
+                                         BluetoothA2dpSink.STATE_PLAYING);
+                     break;
+@@ -699,7 +767,12 @@ final class A2dpSinkStateMachine extends StateMachine {
+         intent.putExtra(BluetoothProfile.EXTRA_STATE, state);
+ //FIXME        intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
+         mContext.sendBroadcast(intent, ProfileService.BLUETOOTH_PERM);
+-
++        Intent intent_sink = new Intent("android.bluetooth.a2dpsink.profile.action.PLAYING_STATE_CHANGED");
++        intent_sink.putExtra(BluetoothDevice.EXTRA_DEVICE, device);
++        intent_sink.putExtra(BluetoothProfile.EXTRA_PREVIOUS_STATE, prevState);
++        intent_sink.putExtra(BluetoothProfile.EXTRA_STATE, state);
++        intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
++        mContext.sendBroadcast(intent_sink,ProfileService.BLUETOOTH_PERM);
+         log("A2DP Playing state : device: " + device + " State:" + prevState + "->" + state);
+     }
+ 
+@@ -765,6 +838,13 @@ final class A2dpSinkStateMachine extends StateMachine {
+             intent.putExtra(BluetoothDevice.EXTRA_DEVICE, device);
+ //FIXME            intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
+             mContext.sendBroadcast(intent, ProfileService.BLUETOOTH_PERM);
++
++            Intent intent_sink = new Intent("android.bluetooth.a2dpsink.profile.action.CONNECTION_STATE_CHANGED");
++            intent_sink.putExtra(BluetoothProfile.EXTRA_PREVIOUS_STATE, prevState);
++            intent_sink.putExtra(BluetoothProfile.EXTRA_STATE, state);
++            intent_sink.putExtra(BluetoothDevice.EXTRA_DEVICE, device);
++            intent_sink.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
++            mContext.sendBroadcast(intent_sink, ProfileService.BLUETOOTH_PERM);            
+             log("Connection state " + device + ": " + prevState + "->" + state);
+             mService.notifyProfileConnectionStateChanged(device, BluetoothProfile.A2DP_SINK,
+                     state, prevState);
+@@ -806,4 +886,29 @@ final class A2dpSinkStateMachine extends StateMachine {
+     private native void cleanupNative();
+     private native boolean connectA2dpNative(byte[] address);
+     private native boolean disconnectA2dpNative(byte[] address);
++    //class RecordThread  extends Thread{
++     //   @Override
++     //   public void run() {
++       //     byte[] buffer = new byte[recorder_buf_size];
++         //   recorder.startRecording();
++          //  player.play();
++          //  while(true) {
++           //     if (mThreadExitFlag == true) {
++            //        break;
++              //  }
++              //  try {
++                 //   int res = recorder.read(buffer, 0, recorder_buf_size);
++                  //  if (res>0) {
++                    //    byte[] tmpBuf = new byte[res];
++                      //  System.arraycopy(buffer, 0, tmpBuf, 0, res);
++                      //  player.write(tmpBuf, 0, tmpBuf.length);
++                   // }
++
++               // } catch (Exception e) {
++               //     e.printStackTrace();
++               //     break;
++               // }
++           // }
++       // }
++    //}
+ }
+diff --git a/packages/apps/Settings/src/com/android/settings/bluetooth/LocalBluetoothPreferences.java b/packages/apps/Settings/src/com/android/settings/bluetooth/LocalBluetoothPreferences.java
+index f00b801..23653fd 100644
+--- a/packages/apps/Settings/src/com/android/settings/bluetooth/LocalBluetoothPreferences.java
++++ b/packages/apps/Settings/src/com/android/settings/bluetooth/LocalBluetoothPreferences.java
+@@ -67,7 +67,9 @@ final class LocalBluetoothPreferences {
+         }
+ 
+         // If Bluetooth Settings is visible
+-        if (manager.isForegroundActivity()) {
++	// visibility cannot be decided by only isForegroundActivity.
++	// Always show the pairing request dialog if LocalBluetoothManager is alive
++        if (true/*manager.isForegroundActivity()*/) {
+             return true;
+         }
+ 
+diff --git a/system/core/include/system/audio.h b/system/core/include/system/audio.h
+index 18fb484..273a5c4 100644
+--- a/system/core/include/system/audio.h
++++ b/system/core/include/system/audio.h
+@@ -141,6 +141,7 @@ typedef enum {
+                                           /* An example of remote presentation is Wifi Display */
+                                           /*  where a dongle attached to a TV can be used to   */
+                                           /*  play the mix captured by this audio source.      */
++    AUDIO_SOURCE_BLUETOOTH_A2DP     = 9,
+     AUDIO_SOURCE_CNT,
+     AUDIO_SOURCE_MAX                 = AUDIO_SOURCE_CNT - 1,
+     AUDIO_SOURCE_FM_TUNER            = 1998,

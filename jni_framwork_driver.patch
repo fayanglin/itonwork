@@ -1,0 +1,680 @@
+diff --git a/device/intel/cherrytrail/cht_cr_mrd_w/device.mk b/device/intel/cherrytrail/cht_cr_mrd_w/device.mk
+index fe76260..61dbe20 100755
+--- a/device/intel/cherrytrail/cht_cr_mrd_w/device.mk
++++ b/device/intel/cherrytrail/cht_cr_mrd_w/device.mk
+@@ -688,8 +688,7 @@ PRODUCT_PACKAGES += lights.$(TARGET_BOARD_PLATFORM)
+ 
+ # LED HAL
+ PRODUCT_PACKAGES += led_demo_hal.$(TARGET_BOARD_PLATFORM)
+-# TAS5711 HAL
+-PRODUCT_PACKAGES += tiAmplifier.$(TARGET_BOARD_PLATFORM)
++
+ ##############################################################
+ # Source: device/intel/mixins/groups/security/txei/product.mk
+ ##############################################################
+diff --git a/device/intel/common/sepolicy/service_contexts b/device/intel/common/sepolicy/service_contexts
+index 7daa680..c9a6ec1 100644
+--- a/device/intel/common/sepolicy/service_contexts
++++ b/device/intel/common/sepolicy/service_contexts
+@@ -11,4 +11,3 @@ com.intel.camera2.camerahal               u:object_r:mediaserver_service:s0
+ awareservice                              u:object_r:system_server_service:s0
+ cws_service_manager                       u:object_r:system_server_service:s0
+ led_demo                                  u:object_r:system_server_service:s0 
+-tiAmplifier								  u:object_r:system_server_service:s0
+diff --git a/frameworks/base/Android.mk b/frameworks/base/Android.mk
+index 569aa89..45da5ee 100755
+--- a/frameworks/base/Android.mk
++++ b/frameworks/base/Android.mk
+@@ -96,7 +96,6 @@ LOCAL_SRC_FILES += \
+ 	core/java/android/app/backup/IRestoreSession.aidl \
+ 	core/java/android/app/usage/IUsageStatsManager.aidl \
+ 	core/java/android/app/ILedDemoService.aidl \
+-	core/java/android/app/ITiAmplifierService.aidl \
+ 	core/java/android/bluetooth/IBluetooth.aidl \
+ 	core/java/android/bluetooth/IBluetoothA2dp.aidl \
+ 	core/java/android/bluetooth/IBluetoothA2dpSink.aidl \
+diff --git a/frameworks/base/core/java/android/app/ContextImpl.java b/frameworks/base/core/java/android/app/ContextImpl.java
+index f284536..c0abd14 100644
+--- a/frameworks/base/core/java/android/app/ContextImpl.java
++++ b/frameworks/base/core/java/android/app/ContextImpl.java
+@@ -121,7 +121,6 @@ import android.os.UserManager;
+ import android.os.storage.IMountService;
+ import android.os.storage.StorageManager;
+ import android.app.ILedDemoService;
+-import android.app.ITiAmplifierService;
+ import android.print.IPrintManager;
+ import android.print.PrintManager;
+ import android.service.fingerprint.IFingerprintService;
+@@ -369,19 +368,13 @@ class ContextImpl extends Context {
+                     IAccountManager service = IAccountManager.Stub.asInterface(b);
+                     return new AccountManager(ctx, service);
+                 }});
+-		registerService(LED_SERVICE, new ServiceFetcher() {
++	registerService(LED_SERVICE, new ServiceFetcher() {
+ 		public Object createService(ContextImpl ctx) {
+ 			IBinder b = ServiceManager.getService(LED_SERVICE);
+ 			ILedDemoService service = ILedDemoService.Stub.asInterface(b);
+ 			return new LedDemoServiceManager(ctx, service);
+ 		}});
+-		
+-		registerService(TIAMPLIFIER_SERVICE, new ServiceFetcher() {
+-		public Object createService(ContextImpl ctx) {
+-			IBinder b = ServiceManager.getService(TIAMPLIFIER_SERVICE);
+-			ITiAmplifierService service = ITiAmplifierService.Stub.asInterface(b);
+-			return new TiAmplifierServiceManager(ctx, service);
+-		}});
++
+         registerService(ACTIVITY_SERVICE, new ServiceFetcher() {
+                 public Object createService(ContextImpl ctx) {
+                     return new ActivityManager(ctx.getOuterContext(), ctx.mMainThread.getHandler());
+diff --git a/frameworks/base/core/java/android/app/ITiAmplifierService.aidl b/frameworks/base/core/java/android/app/ITiAmplifierService.aidl
+deleted file mode 100644
+index 5d634ba..0000000
+--- a/frameworks/base/core/java/android/app/ITiAmplifierService.aidl
++++ /dev/null
+@@ -1,9 +0,0 @@
+-package android.app;
+-
+-interface ITiAmplifierService
+-{
+-    void tiAmplifierSetPDNmode(int mode);
+-    int  tiAmplifierGetPDNmode();
+-    void tiAmplifierSetEQmode(int mode);
+-    int  tiAmplifierGetEQmode();  
+-}
+diff --git a/frameworks/base/core/java/android/app/TiAmplifierServiceManager.java b/frameworks/base/core/java/android/app/TiAmplifierServiceManager.java
+deleted file mode 100644
+index 0599ed0..0000000
+--- a/frameworks/base/core/java/android/app/TiAmplifierServiceManager.java
++++ /dev/null
+@@ -1,52 +0,0 @@
+-package android.app;
+-
+-import android.content.Context;
+-import android.util.AndroidException;
+-import android.os.RemoteException;
+-
+-public class TiAmplifierServiceManager
+-{
+-	private static final String TAG = "TiAmplifierServiceManager";
+-
+-	private final ITiAmplifierService mService;
+-	private final Context mContext;	
+-	
+-	
+-	/**
+-	 * package private on purpose
+-	 */
+-	public TiAmplifierServiceManager(Context context, ITiAmplifierService service) {
+-		mContext = context;
+-		mService = service;
+-	}
+-    public void tiAmplifierSetPDNmode(int mode){
+-		try {
+-			mService.tiAmplifierSetPDNmode(mode);
+-		}catch (RemoteException e) {
+-			e.printStackTrace();
+-		}	
+-	}
+-    public int  tiAmplifierGetPDNmode(){
+-		try {
+-			return mService.tiAmplifierGetPDNmode();
+-		}catch (RemoteException e) {
+-			e.printStackTrace();
+-			return -1;
+-		}
+-	}
+-    public void tiAmplifierSetEQmode(int mode){
+-		try {
+-			mService.tiAmplifierSetEQmode(mode);
+-		}catch (RemoteException e) {
+-			e.printStackTrace();
+-		}	
+-	}
+-    public int  tiAmplifierGetEQmode(){
+-		try {
+-			return mService.tiAmplifierGetEQmode();
+-		}catch (RemoteException e) {
+-			e.printStackTrace();
+-			return -1;
+-		}	
+-	}	
+-}
+\ No newline at end of file
+diff --git a/frameworks/base/core/java/android/content/Context.java b/frameworks/base/core/java/android/content/Context.java
+index 24e6c39..580707b 100644
+--- a/frameworks/base/core/java/android/content/Context.java
++++ b/frameworks/base/core/java/android/content/Context.java
+@@ -2301,8 +2301,7 @@ public abstract class Context {
+ 
+ 
+     public static final String LED_SERVICE = "led_demo";
+-	
+-	public static final String TIAMPLIFIER_SERVICE = "tiAmplifier";
++
+     /**
+      * Use with {@link #getSystemService} to retrieve a
+      * {@link android.app.ActivityManager} for interacting with the global
+diff --git a/frameworks/base/services/core/jni/Android.mk b/frameworks/base/services/core/jni/Android.mk
+index 07f0eea..bf64261 100644
+--- a/frameworks/base/services/core/jni/Android.mk
++++ b/frameworks/base/services/core/jni/Android.mk
+@@ -26,7 +26,6 @@ LOCAL_SRC_FILES += \
+     $(LOCAL_REL_DIR)/com_android_server_VibratorService.cpp \
+     $(LOCAL_REL_DIR)/com_android_server_PersistentDataBlockService.cpp \
+     $(LOCAL_REL_DIR)/com_android_server_LedDemoService.cpp \
+-	$(LOCAL_REL_DIR)/com_android_server_TiAmplifierService.cpp \
+     $(LOCAL_REL_DIR)/onload.cpp
+ 
+ include external/stlport/libstlport.mk
+diff --git a/frameworks/base/services/core/jni/com_android_server_TiAmplifierService.cpp b/frameworks/base/services/core/jni/com_android_server_TiAmplifierService.cpp
+deleted file mode 100644
+index 2b20541..0000000
+--- a/frameworks/base/services/core/jni/com_android_server_TiAmplifierService.cpp
++++ /dev/null
+@@ -1,125 +0,0 @@
+-#define LOG_TAG  "TiAmplifierJni"
+-#include "jni.h"
+-#include "JNIHelp.h"
+-#include "android_runtime/AndroidRuntime.h"
+-#include <utils/misc.h>
+-#include <utils/Log.h>
+-#include <hardware/hardware.h>
+-#include <hardware/tiAmplifier.h>
+-#include <stdio.h>
+-
+-namespace android
+-{
+-	
+-	
+-	static void tiAmplifier_setPDNmode(JNIEnv *env, jobject clazz, jint ptr,  jint mode)
+-	{
+-		tiAmplifier_device_t *device = (tiAmplifier_device_t *)ptr;
+-		if(!device)
+-		{
+-			ALOGE("Device tiAmplifier is not open.");
+-			return ;
+-		}
+-
+-		int val = mode;
+-
+-		ALOGI("Set value %d to device tiAmplifier.", val);
+-
+-		device->set_PDNmode(device, mode);
+-	}	
+-
+-	static int tiAmplifier_getPDNmode(JNIEnv *env, jobject clazz, jint ptr)
+-	{
+-		tiAmplifier_device_t *device = (tiAmplifier_device_t *)ptr;
+-		if(!device)
+-		{
+-			ALOGE("Device tiAmplifier is not open.");
+-			return -1;
+-		}
+-
+-		int val = device->get_PDNmode(device);
+-
+-		ALOGI("Get value %d to device tiAmplifier.", val);
+-
+-		return device->get_PDNmode(device);
+-	}	
+-	
+-	static void tiAmplifier_setEQmode(JNIEnv *env, jobject clazz, jint ptr,  jint mode)
+-	{
+-		tiAmplifier_device_t *device = (tiAmplifier_device_t *)ptr;
+-		if(!device)
+-		{
+-			ALOGE("Device tiAmplifieris not open.");
+-			return ;
+-		}
+-
+-		int val = mode;
+-
+-		ALOGI("Set value %d to device tiAmplifier.", val);
+-
+-		device->set_EQmode(device, mode);
+-	}	
+-
+-	static int tiAmplifier_getEQmode(JNIEnv *env, jobject clazz, jint ptr)
+-	{
+-		tiAmplifier_device_t *device = (tiAmplifier_device_t *)ptr;
+-		if(!device)
+-		{
+-			ALOGE("Device tiAmplifier is not open.");
+-			return -1;
+-		}
+-
+-		int val = device->get_EQmode(device);
+-
+-		ALOGI("Get value %d to device tiAmplifier.", val);
+-
+-		return device->get_EQmode(device);
+-	}	
+-	
+-	
+-	static inline int tiAmplifier_device_open(const hw_module_t *module, struct tiAmplifier_device_t **device)
+-	{
+-		return module->methods->open(module, TIAMPLIFIER_HARDWARE_DEVICE_ID, (struct hw_device_t **)device);	
+-	}
+-
+-	
+-	static jint tiAmplifier_init(JNIEnv *env, jclass clazz)
+-	{
+-		struct tiAmplifier_module_t *module;
+-		struct tiAmplifier_device_t *device;
+-
+-
+-		ALOGI("Initializing HAL tiAmplifier ......");
+-
+-		if(hw_get_module(TIAMPLIFIER_HARDWARE_MODULE_ID, (const struct hw_module_t **)&module) == 0)
+-		{
+-			ALOGE("Device tiAmplifier found.");
+-
+-			if(tiAmplifier_device_open(&(module->common), &device))
+-			{
+-				ALOGI("Device tiAmplifier is open.");
+-				return (jint)device;
+-			}
+-
+-			ALOGE("Failed to open device tiAmplifier.");
+-
+-			return 0;
+-		}
+-
+-		ALOGE("Failed to get HAL stub tiAmplifier.");
+-		return 0;
+-	}
+-	static const JNINativeMethod  method_table[] =
+-	{
+-		{"init_native", "()I", (void *)tiAmplifier_init},
+-		{"setPDNmode_native", "(II)V", (void *)tiAmplifier_setPDNmode},
+-		{"getPDNmode_native", "(I)I", (void *)tiAmplifier_getPDNmode},
+-		{"setEQmod_native", "(II)V", (void *)tiAmplifier_setEQmode},
+-		{"getEQmode_native", "(I)I", (void *)tiAmplifier_getEQmode},
+-	};
+-	int register_android_server_TiAmplifierService(JNIEnv *env)
+-	{
+-		return jniRegisterNativeMethods(env, "com/android/server/TiAmplifierService", method_table, NELEM(method_table));
+-	}
+-
+-};
+\ No newline at end of file
+diff --git a/frameworks/base/services/core/jni/onload.cpp b/frameworks/base/services/core/jni/onload.cpp
+index 5731a4b..34a61b0 100644
+--- a/frameworks/base/services/core/jni/onload.cpp
++++ b/frameworks/base/services/core/jni/onload.cpp
+@@ -43,7 +43,6 @@ int register_android_server_PersistentDataBlockService(JNIEnv* env);
+ int register_android_server_fingerprint_FingerprintService(JNIEnv* env);
+ int register_android_server_Watchdog(JNIEnv* env);
+ int register_android_server_LedDemoService(JNIEnv *env);
+-int register_android_server_TiAmplifierService(JNIEnv *env);
+ };
+ 
+ using namespace android;
+@@ -82,6 +81,5 @@ extern "C" jint JNI_OnLoad(JavaVM* vm, void* reserved)
+     register_android_server_fingerprint_FingerprintService(env);
+     register_android_server_Watchdog(env);
+     register_android_server_LedDemoService(env);
+-	register_android_server_TiAmplifierService(env);
+     return JNI_VERSION_1_4;
+ }
+diff --git a/frameworks/base/services/java/com/android/server/SystemServer.java b/frameworks/base/services/java/com/android/server/SystemServer.java
+index db0ed94..0b25a9f 100644
+--- a/frameworks/base/services/java/com/android/server/SystemServer.java
++++ b/frameworks/base/services/java/com/android/server/SystemServer.java
+@@ -573,12 +573,6 @@ public final class SystemServer {
+ 	    } catch (Throwable e) {
+ 		    Slog.e(TAG, "Failed to start Led demo Service", e);
+ 	    }
+-	    try{
+-		    Slog.i(TAG, "TiAmplifier   Service");
+-		    ServiceManager.addService("tiAmplifier", new TiAmplifierService(context));
+-	    } catch (Throwable e) {
+-		    Slog.e(TAG, "Failed to start Led demo Service", e);
+-	    }
+         }
+ 
+         try {
+diff --git a/frameworks/base/services/java/com/android/server/TiAmplifierService.java b/frameworks/base/services/java/com/android/server/TiAmplifierService.java
+deleted file mode 100644
+index d578735..0000000
+--- a/frameworks/base/services/java/com/android/server/TiAmplifierService.java
++++ /dev/null
+@@ -1,63 +0,0 @@
+-package com.android.server;
+-import android.content.Context;
+-import android.app.ITiAmplifierService;
+-
+-import android.util.Slog;
+-
+-public class TiAmplifierService extends ITiAmplifierService.Stub
+-{
+-	private static final String TAG = "ITiAmplifierService";
+-	private Context mContext;
+-	private int mPtr = 0;	
+-	
+-	public TiAmplifierService(Context context)
+-	{
+-		mPtr = init_native();
+-		if(mPtr == 0)
+-		{
+-			Slog.e(TAG, "Failed to initialize TiAmplifier Service.");
+-		}
+-	}
+-
+-    public void tiAmplifierSetPDNmode(int mode)
+-	{
+-		if(mPtr == 0)
+-		{
+-			Slog.e(TAG, "Failed to initialize TiAmplifier Service.");
+-		}	
+-        setPDNmode_native(mPtr,mode);		
+-	}
+-    public int  tiAmplifierGetPDNmode()
+-	{
+-		if(mPtr == 0)
+-		{
+-			Slog.e(TAG, "Failed to initialize TiAmplifier Service.");
+-		}	
+-		return getPDNmode_native(mPtr);
+-	}
+-    public void tiAmplifierSetEQmode(int mode)
+-	{
+-		if(mPtr == 0)
+-		{
+-			Slog.e(TAG, "Failed to initialize TiAmplifier Service.");
+-		}		
+-        setEQmod_native(mPtr,mode);
+-	}
+-    public int  tiAmplifierGetEQmode() 
+-	{
+-
+-		if(mPtr == 0)
+-		{
+-			Slog.e(TAG, "Failed to initialize TiAmplifier Service.");
+-		}	
+-        return getEQmode_native(mPtr);		
+-	}
+-	
+-	private static native int init_native();
+-	private static native void setPDNmode_native(int mPtr, int mode);
+-	private static native void setEQmod_native(int mPtr, int mode);
+-	private static native int getPDNmode_native(int mPtr);
+-	private static native int getEQmode_native(int mPtr);	
+-
+-}
+-
+diff --git a/hardware/intel/tiamplifier/Android.mk b/hardware/intel/tiamplifier/Android.mk
+deleted file mode 100644
+index 3dbf234..0000000
+--- a/hardware/intel/tiamplifier/Android.mk
++++ /dev/null
+@@ -1,19 +0,0 @@
+-LOCAL_PATH := $(call my-dir)
+-
+-include $(CLEAR_VARS)
+-
+-LOCAL_PRELINK_MODULE := false
+-LOCAL_MODULE_RELATIVE_PATH := hw
+-
+-LOCAL_SHARED_LIBRARIES := liblog
+-
+-LOCAL_MODULE := tiAmplifier.$(TARGET_BOARD_PLATFORM)
+-
+-LOCAL_SRC_FILES := tiAmplifier.cpp
+-
+-LOCAL_MODULE_TAGS := optional
+-
+-LOCAL_MODULE_OWNER := intel
+-
+-include $(BUILD_SHARED_LIBRARY)
+-
+diff --git a/hardware/intel/tiamplifier/tiAmplifier.cpp b/hardware/intel/tiamplifier/tiAmplifier.cpp
+deleted file mode 100644
+index 6e09fa4..0000000
+--- a/hardware/intel/tiamplifier/tiAmplifier.cpp
++++ /dev/null
+@@ -1,206 +0,0 @@
+-#define LOG_TAG "tiAmplifier_hal"
+-
+-#include <hardware/hardware.h>
+-#include <hardware/tiAmplifier.h>
+-
+-#include <fcntl.h>
+-#include <errno.h>
+-#include <stdlib.h>
+-
+-#include <utils/Log.h>
+-#include <cutils/atomic.h>
+-
+-#define EQ_SYS_FILE   	"/sys/bus/i2c/devices/i2c-5/5-001b/EQMode"
+-#define PDN_SYS_FILE   	"/sys/bus/i2c/devices/i2c-5/5-001b/PDNMode"
+-#define MODULE_AUTHOR    "fayang.lin"
+-
+-
+-static  int tiAmplifier_open(const struct hw_module_t* module, const char* id,struct hw_device_t** device);
+-static	int tiAmplifier_set_PDNmode(struct tiAmplifier_device_t *dev, int mode);
+-static	int tiAmplifier_get_PDNmode(struct tiAmplifier_device_t *dev);
+-static	int tiAmplifier_set_EQmode(struct tiAmplifier_device_t *dev, int mode);
+-static	int tiAmplifier_get_EQmode(struct tiAmplifier_device_t *dev);
+-static  int tiAmplifier_close(struct hw_device_t* device);
+-
+-static hw_module_methods_t tiAmplifier_module_methods =
+-{
+-	open:tiAmplifier_open,
+-};
+-
+-struct tiAmplifier_module_t HAL_MODULE_INFO_SYM = 
+-{
+-	common:{
+-		tag:HARDWARE_MODULE_TAG,
+-		version_major:1,
+-		version_minor:0,
+-		id:TIAMPLIFIER_HARDWARE_MODULE_ID,
+-		name:MODULE_NAME,
+-		author:MODULE_AUTHOR,
+-		methods:&tiAmplifier_module_methods,
+-	}
+-};
+-
+-
+-static int tiAmplifier_open(const struct hw_module_t* module, const char* id,
+-		struct hw_device_t** device)
+-{
+-	if(!strcmp(id, TIAMPLIFIER_HARDWARE_DEVICE_ID))
+-	{
+-		struct tiAmplifier_device_t *dev;
+-		dev = (struct tiAmplifier_device_t *)malloc(sizeof(struct tiAmplifier_device_t));
+-		if(!dev)
+-		{
+-			ALOGE("Failed to alloc space for struct tiAmplifier_device_t.");
+-			return -EFAULT;
+-		}
+-
+-		memset(dev, 0, sizeof(struct tiAmplifier_device_t));
+-
+-		dev->common.tag = HARDWARE_DEVICE_TAG;
+-		dev->common.version = 0;
+-		dev->common.module = (struct hw_module_t *)module;
+-		dev->common.close = tiAmplifier_close;
+-		dev->set_PDNmode = tiAmplifier_set_PDNmode;
+-		dev->get_PDNmode = tiAmplifier_get_PDNmode;
+-		dev->set_EQmode = tiAmplifier_set_EQmode;
+-		dev->get_EQmode = tiAmplifier_get_EQmode;
+-
+-		*device = &(dev->common);
+-
+-		ALOGE("Open device file successfully.");
+-
+-	}
+-
+-	return -EFAULT;
+-}
+-
+-static int tiAmplifier_close(struct hw_device_t* device)
+-{
+-	struct tiAmplifier_device_t *tiAmplifier = (struct tiAmplifier_device_t *)device;
+-	if(tiAmplifier)
+-	{
+-		if( tiAmplifier->PDNfd > 0)
+-			close(tiAmplifier->PDNfd);
+-		if(tiAmplifier->EQfd >0)
+-			close(tiAmplifier->EQfd);
+-		free(tiAmplifier);
+-	}
+-
+-	return 0;
+-}
+-static	int tiAmplifier_set_PDNmode(struct tiAmplifier_device_t *dev, int mode)
+-{
+-	int fd;
+-	char buf[64];
+-	int written = -1, to_write;
+-	 int PDNmode = mode;
+-
+-	ALOGE("--lfy--hal-tiAmplifier_set_PDNmode = %d\n", PDNmode);
+-	if (!dev) {
+-		return -ENXIO;
+-	}
+-
+-	fd = open(PDN_SYS_FILE, O_RDWR);
+-	if (fd < 0) {
+-		ALOGE("unable to open %s: %s\n",PDN_SYS_FILE, strerror(errno));
+-		return -errno;
+-	}
+-	dev->PDNfd = fd;
+-	to_write = sprintf(buf, "%d\n", PDNmode);
+-	if (to_write > 0)
+-		written = write(fd, buf, to_write);
+-	
+-	close(fd);
+-    dev->PDNfd = -1;
+-	return written < 0 ? -errno : 0;	
+-}
+-static	int tiAmplifier_get_PDNmode(struct tiAmplifier_device_t *dev)
+-{
+-	int fd;
+-	char buf[20];
+-	int PDNmode = 0x00000000;
+-	int ret;
+-	if (!dev) {
+-		return -ENXIO;
+-	}
+-
+-	fd = open(PDN_SYS_FILE, O_RDONLY);
+-	if (fd < 0) {
+-		ALOGE("unable to open %s: %s\n",PDN_SYS_FILE, strerror(errno));
+-		return -errno;
+-	}
+-    dev->PDNfd = fd;
+-	ret = read(fd, &buf[0], sizeof(buf));
+-    if (ret < 0)
+-	{
+-		close(fd);	
+-		dev->PDNfd =-1;
+-		return -1;
+-	}
+-
+-     PDNmode = atoi(&buf[0]);
+-
+-	ALOGE(" --lfy--tas5711_get_PDNmode: PDNmode = %d,\n", PDNmode);
+-
+-    close(fd);	
+-    dev->PDNfd =-1;
+-	return PDNmode;	
+-}
+-static	int tiAmplifier_set_EQmode(struct tiAmplifier_device_t *dev, int mode)
+-{
+-	int fd;
+-	char buf[64];
+-	int written = -1, to_write;
+-	 int EQmode = mode;
+-
+-	ALOGE("--lfy--hal-tiAmplifier_set_EQmode = %d\n", EQmode);
+-	if (!dev) {
+-		return -ENXIO;
+-	}
+-
+-	fd = open(EQ_SYS_FILE, O_RDWR);
+-	if (fd < 0) {
+-		ALOGE("unable to open %s: %s\n",EQ_SYS_FILE, strerror(errno));
+-		return -errno;
+-	}
+-	dev->EQfd = fd;
+-	to_write = sprintf(buf, "%d\n", EQmode);
+-	if (to_write > 0)
+-		written = write(fd, buf, to_write);
+-	
+-	close(fd);
+-    dev->EQfd = -1;
+-	return written < 0 ? -errno : 0;	
+-}
+-static	int tiAmplifier_get_EQmode(struct tiAmplifier_device_t *dev)
+-{
+-	int fd;
+-	char buf[20];
+-	int EQmode = 0x00000000;
+-	int ret;
+-	if (!dev) {
+-		return -ENXIO;
+-	}
+-
+-	fd = open(EQ_SYS_FILE, O_RDONLY);
+-	if (fd < 0) {
+-		ALOGE("unable to open %s: %s\n",EQ_SYS_FILE, strerror(errno));
+-		return -errno;
+-	}
+-    dev->EQfd = fd;
+-	ret = read(fd, &buf[0], sizeof(buf));
+-    if (ret < 0)
+-	{
+-		close(fd);	
+-		dev->EQfd =-1;
+-		return -1;
+-	}
+-
+-     EQmode = atoi(&buf[0]);
+-
+-	ALOGE(" --lfy--tiAmplifier_get_EQmode: EQmode = %d,\n", EQmode);
+-
+-    close(fd);	
+-    dev->EQfd =-1;
+-	return EQmode;		
+-}
+diff --git a/hardware/libhardware/include/hardware/tiAmplifier.h b/hardware/libhardware/include/hardware/tiAmplifier.h
+deleted file mode 100644
+index 19f1a6b..0000000
+--- a/hardware/libhardware/include/hardware/tiAmplifier.h
++++ /dev/null
+@@ -1,31 +0,0 @@
+-#ifndef ANDROID_TIAMPLIFIER_HAL_H
+-#define ANDROID_TIAMPLIFIER_HAL_H
+-
+-#include <hardware/hardware.h>
+-
+-__BEGIN_DECLS
+-
+-#define TIAMPLIFIER_HARDWARE_MODULE_ID   "tiAmplifier"
+-#define TIAMPLIFIER_HARDWARE_DEVICE_ID   "tiAmplifier"
+-#define MODULE_NAME    "tiAmplifier"
+-
+-struct tiAmplifier_module_t
+-{
+-	struct hw_module_t common;
+-};
+-
+-struct tiAmplifier_device_t
+-{
+-	struct hw_device_t common;
+-	int PDNfd;
+-	int EQfd;
+-	int (*set_PDNmode)(struct tiAmplifier_device_t *dev, int mode);
+-	int (*get_PDNmode)(struct tiAmplifier_device_t *dev);
+-	int (*set_EQmode)(struct  tiAmplifier_device_t *dev, int mode);
+-	int (*get_EQmode)(struct  tiAmplifier_device_t *dev);
+-
+-};
+-
+-__END_DECLS
+-
+-#endif
