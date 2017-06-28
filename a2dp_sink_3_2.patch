@@ -1,0 +1,788 @@
+diff --git a/device/intel/cherrytrail/cht_cr_mrd_w/BoardConfig.mk b/device/intel/cherrytrail/cht_cr_mrd_w/BoardConfig.mk
+index 4b27784..895320b 100755
+--- a/device/intel/cherrytrail/cht_cr_mrd_w/BoardConfig.mk
++++ b/device/intel/cherrytrail/cht_cr_mrd_w/BoardConfig.mk
+@@ -3,6 +3,8 @@ DEVICE_PACKAGE_OVERLAYS += device/intel/cherrytrail/cht_cr_mrd_w/overlay
+ BOARD_FLASHFILES += \
+         device/intel/cherrytrail/cht_cr_mrd_w/oemvars.txt:oemvars.txt
+ 
++# Have ble  Remote Control choose: if have   Remote Control BOARD_HAVE_BLUETOOTH_CONTROL := true else BOARD_HAVE_BLUETOOTH_CONTROL := false
++BOARD_HAVE_BLUETOOTH_CONTROL := false
+ # wifi module choose: if wifi chip bcm43438 BOARD_WIFI_BCM43438 := true else BOARD_WIFI_BCM43438 := false
+ BOARD_WIFI_BCM43438 := true
+ # Enable to use DPCM driver in audio offload HAL
+diff --git a/device/intel/cherrytrail/cht_cr_mrd_w/audio/audio_policy.conf b/device/intel/cherrytrail/cht_cr_mrd_w/audio/audio_policy.conf
+index 77e61b7..b1d5153 100755
+--- a/device/intel/cherrytrail/cht_cr_mrd_w/audio/audio_policy.conf
++++ b/device/intel/cherrytrail/cht_cr_mrd_w/audio/audio_policy.conf
+@@ -29,6 +29,13 @@ audio_hw_modules {
+         devices AUDIO_DEVICE_OUT_SPEAKER|AUDIO_DEVICE_OUT_WIRED_HEADSET|AUDIO_DEVICE_OUT_WIRED_HEADPHONE|AUDIO_DEVICE_OUT_ALL_SCO
+         flags AUDIO_OUTPUT_FLAG_PRIMARY
+       }
++      lpmp3 {
++       sampling_rates 8000|16000|32000|44100|48000
++       channel_masks AUDIO_CHANNEL_OUT_STEREO
++       formats AUDIO_FORMAT_MP3
++        devices AUDIO_DEVICE_OUT_EARPIECE|AUDIO_DEVICE_OUT_SPEAKER|AUDIO_DEVICE_OUT_WIRED_HEADSET|AUDIO_DEVICE_OUT_WIRED_HEADPHONE|AUDIO_DEVICE_OUT_ALL_SCO|AUDIO_DEVICE_OUT_AUX_DIGITAL
++       flags AUDIO_OUTPUT_FLAG_DIRECT|AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD|AUDIO_OUTPUT_FLAG_NON_BLOCKING
++      }
+       deep_buffer {
+         sampling_rates 48000
+         channel_masks AUDIO_CHANNEL_OUT_STEREO
+@@ -41,7 +48,7 @@ audio_hw_modules {
+       primary {
+         sampling_rates 8000|11025|12000|16000|22050|24000|32000|44100|48000
+         channel_masks AUDIO_CHANNEL_IN_MONO|AUDIO_CHANNEL_IN_STEREO
+-        formats AUDIO_FORMAT_PCM_16_BIT
++        formats AUDIO_FORMAT_PCM_8_BIT|AUDIO_FORMAT_PCM_16_BIT
+         devices AUDIO_DEVICE_IN_BUILTIN_MIC|AUDIO_DEVICE_IN_WIRED_HEADSET|AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET
+       }
+     }
+@@ -55,6 +62,14 @@ audio_hw_modules {
+         devices AUDIO_DEVICE_OUT_ALL_A2DP
+       }
+     }
++    inputs {
++      a2dp {
++        sampling_rates 44100|48000
++        channel_masks AUDIO_CHANNEL_IN_STEREO|AUDIO_CHANNEL_IN_MONO
++        formats AUDIO_FORMAT_PCM_16_BIT|AUDIO_FORMAT_PCM_8_BIT
++        devices AUDIO_DEVICE_IN_BLUETOOTH_A2DP
++      }
++    }
+   }
+   hdmi {
+     outputs {
+diff --git a/device/intel/cherrytrail/cht_cr_mrd_w/device.mk b/device/intel/cherrytrail/cht_cr_mrd_w/device.mk
+index 9312860..e25c31e 100755
+--- a/device/intel/cherrytrail/cht_cr_mrd_w/device.mk
++++ b/device/intel/cherrytrail/cht_cr_mrd_w/device.mk
+@@ -206,6 +206,8 @@ PRODUCT_PACKAGES += \
+ PRODUCT_PACKAGES += \
+     libI420colorconvert
+ 
++PRODUCT_PACKAGES += \
++	TCLA2dpSinkService
+ ifneq ($(BOARD_HAVE_GEN_GFX_SRC),true)
+     # UFO prebuilts
+     PRODUCT_PACKAGES += ufo_prebuilts
+diff --git a/external/bluetooth/bluedroid/audio_a2dp_hw/audio_a2dp_hw.c b/external/bluetooth/bluedroid/audio_a2dp_hw/audio_a2dp_hw.c
+index 88ac8d6..31485dc 100644
+--- a/external/bluetooth/bluedroid/audio_a2dp_hw/audio_a2dp_hw.c
++++ b/external/bluetooth/bluedroid/audio_a2dp_hw/audio_a2dp_hw.c
+@@ -69,7 +69,7 @@
+ /*****************************************************************************
+ **  Local type definitions
+ ******************************************************************************/
+-
++int fd_sample = -1;
+ typedef enum {
+     AUDIO_A2DP_STATE_STARTING,
+     AUDIO_A2DP_STATE_STARTED,
+@@ -917,9 +917,8 @@ static ssize_t in_read(struct audio_stream_in *stream, void* buffer,
+ {
+     struct a2dp_stream_in *in = (struct a2dp_stream_in *)stream;
+     int read;
+-
++    //int write_in;
+     DEBUG("read %zu bytes, state: %d", bytes, in->common.state);
+-
+     if (in->common.state == AUDIO_A2DP_STATE_SUSPENDED)
+     {
+         DEBUG("stream suspended");
+@@ -956,6 +955,15 @@ static ssize_t in_read(struct audio_stream_in *stream, void* buffer,
+ 
+     read = skt_read(in->common.audio_fd, buffer, bytes);
+ 
++    // Debug for linfayang 
++    /*
++    write_in=write(fd_sample,buffer,bytes);
++
++    if(write_in == -1)
++    {
++        ERROR("--lfy--write_in ERROR");
++    }
++    */
+     if (read == -1)
+     {
+         skt_disconnect(in->common.audio_fd);
+@@ -1016,7 +1024,6 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
+     UNUSED(flags);
+ 
+     INFO("opening output");
+-
+     out = (struct a2dp_stream_out *)calloc(1, sizeof(struct a2dp_stream_out));
+ 
+     if (!out)
+@@ -1208,6 +1215,7 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
+     struct a2dp_audio_device *a2dp_dev = (struct a2dp_audio_device *)dev;
+     struct a2dp_stream_in *in;
+     int ret;
++    int fd;
+     UNUSED(handle);
+     UNUSED(devices);
+     UNUSED(config);
+@@ -1254,7 +1262,14 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
+         ret = -1;
+         goto err_open;
+     }
+-
++    
++    /*
++    fd_sample=open("/data/sample.pmc",O_CREAT|O_RDWR,S_IRUSR|S_IWUSR);  
++    if(fd<0){  
++        ERROR("/data/sample.pmc failed (%s)", strerror(errno));
++    }  
++    ERROR("--lfy--/data/sample.pmc = %d ",fd_sample);
++    */
+     DEBUG("success");
+     return 0;
+ 
+@@ -1281,7 +1296,11 @@ static void adev_close_input_stream(struct audio_hw_device *dev,
+     skt_disconnect(in->common.ctrl_fd);
+     free(stream);
+     a2dp_dev->input = NULL;
+-
++    /*
++    if(fd_sample >0)
++        close(fd_sample);
++     ERROR("--lfy-- close /data/sample.pmc ");
++     */
+     DEBUG("done");
+ }
+ 
+diff --git a/external/bluetooth/bluedroid/bta/av/bta_av_act.c b/external/bluetooth/bluedroid/bta/av/bta_av_act.c
+index dfd3662..cccfa63 100644
+--- a/external/bluetooth/bluedroid/bta/av/bta_av_act.c
++++ b/external/bluetooth/bluedroid/bta/av/bta_av_act.c
+@@ -33,6 +33,7 @@
+ #include "bd.h"
+ #include "utl.h"
+ #include "l2c_api.h"
++#include "bt_types.h"
+ #if( defined BTA_AR_INCLUDED ) && (BTA_AR_INCLUDED == TRUE)
+ #include "bta_ar_api.h"
+ #endif
+@@ -514,7 +515,10 @@ void bta_av_rc_opened(tBTA_AV_CB *p_cb, tBTA_AV_DATA *p_data)
+         return;
+     }
+ 
+-
++    a1.q_handle=p_cb->rcb[i].handle;    		      
++    BTM_SetQoS( p_data->rc_conn_chg.peer_addr, &(a1), NULL );
++     APPL_TRACE_ERROR("--lfy--BTM_SetQoS");
++	 
+     if (p_cb->rcb[i].lidx == (BTA_AV_NUM_LINKS + 1) && shdl != 0)
+     {
+         /* rc is opened on the RC only ACP channel, but is for a specific
+diff --git a/external/bluetooth/bluedroid/btif/src/btif_av.c b/external/bluetooth/bluedroid/btif/src/btif_av.c
+index 8f3a974..8cce95c 100644
+--- a/external/bluetooth/bluedroid/btif/src/btif_av.c
++++ b/external/bluetooth/bluedroid/btif/src/btif_av.c
+@@ -41,6 +41,8 @@
+ #include "bd.h"
+ #include "btu.h"
+ #include "bt_utils.h"
++#include "bt_types.h"
++
+ 
+ /*****************************************************************************
+ **  Constants & Macros
+@@ -539,7 +541,7 @@ static BOOLEAN btif_av_state_closing_handler(btif_sm_event_t event, void *p_data
+ static BOOLEAN btif_av_state_opened_handler(btif_sm_event_t event, void *p_data)
+ {
+     tBTA_AV *p_av = (tBTA_AV*)p_data;
+-
++    BD_ADDR remote_bd;
+     BTIF_TRACE_DEBUG("%s event:%s flags %x", __FUNCTION__,
+                      dump_av_sm_event_name(event), btif_av_cb.flags);
+ 
+@@ -602,6 +604,9 @@ static BOOLEAN btif_av_state_opened_handler(btif_sm_event_t event, void *p_data)
+                     btif_a2dp_on_started(NULL, TRUE);
+                 /* pending start flag will be cleared when exit current state */
+             }
++			a1.q_handle=btif_av_cb.bta_handle;
++           bdcpy(remote_bd, btif_av_cb.peer_bda.address);
++           BTM_SetQoS(remote_bd, &(a1), NULL ) ;
+             btif_sm_change_state(btif_av_cb.sm_handle, BTIF_AV_STATE_STARTED);
+ 
+         } break;
+diff --git a/external/bluetooth/bluedroid/include/bt_target.h b/external/bluetooth/bluedroid/include/bt_target.h
+index e599f13..d0a163c 100644
+--- a/external/bluetooth/bluedroid/include/bt_target.h
++++ b/external/bluetooth/bluedroid/include/bt_target.h
+@@ -168,7 +168,7 @@
+ #endif
+ 
+ #ifndef BTA_AV_SINK_INCLUDED
+-#define BTA_AV_SINK_INCLUDED FALSE
++#define BTA_AV_SINK_INCLUDED TRUE
+ #endif
+ 
+ #ifndef BTA_DISABLE_DELAY
+diff --git a/external/bluetooth/bluedroid/main/Android.mk b/external/bluetooth/bluedroid/main/Android.mk
+index 21dfa1c..ddd4c74 100644
+--- a/external/bluetooth/bluedroid/main/Android.mk
++++ b/external/bluetooth/bluedroid/main/Android.mk
+@@ -72,6 +72,22 @@ LOCAL_SRC_FILES += \
+ 	../embdrv/sbc/encoder/srce/sbc_encoder.c \
+ 	../embdrv/sbc/encoder/srce/sbc_packing.c \
+ 
++LOCAL_SRC_FILES+= \
++	../embdrv/sbc/decoder/srce/alloc.c \
++	../embdrv/sbc/decoder/srce/bitalloc.c \
++	../embdrv/sbc/decoder/srce/bitalloc-sbc.c \
++	../embdrv/sbc/decoder/srce/bitstream-decode.c \
++	../embdrv/sbc/decoder/srce/decoder-oina.c \
++	../embdrv/sbc/decoder/srce/decoder-private.c \
++	../embdrv/sbc/decoder/srce/decoder-sbc.c \
++	../embdrv/sbc/decoder/srce/dequant.c \
++	../embdrv/sbc/decoder/srce/framing.c \
++	../embdrv/sbc/decoder/srce/framing-sbc.c \
++	../embdrv/sbc/decoder/srce/oi_codec_version.c \
++	../embdrv/sbc/decoder/srce/synthesis-sbc.c \
++	../embdrv/sbc/decoder/srce/synthesis-dct8.c \
++	../embdrv/sbc/decoder/srce/synthesis-8-generated.c \
++
+ LOCAL_SRC_FILES += \
+ 	../udrv/ulinux/uipc.c
+ 
+diff --git a/external/bluetooth/bluedroid/stack/include/bt_types.h b/external/bluetooth/bluedroid/stack/include/bt_types.h
+index 617eaf3..e0be20e 100644
+--- a/external/bluetooth/bluedroid/stack/include/bt_types.h
++++ b/external/bluetooth/bluedroid/stack/include/bt_types.h
+@@ -363,6 +363,7 @@ typedef UINT8 ACO[ACO_LEN];                 /* Authenticated ciphering offset */
+ typedef UINT8 COF[COF_LEN];                 /* ciphering offset number */
+ 
+ typedef struct {
++	UINT8               q_handle;          /* TBD */
+     UINT8               qos_flags;          /* TBD */
+     UINT8               service_type;       /* see below */
+     UINT32              token_rate;         /* bytes/second */
+@@ -372,6 +373,8 @@ typedef struct {
+     UINT32              delay_variation;    /* microseconds */
+ } FLOW_SPEC;
+ 
++FLOW_SPEC a1;
++
+ /* Values for service_type */
+ #define NO_TRAFFIC      0
+ #define BEST_EFFORT     1
+diff --git a/external/bluetooth/bluedroid/stack/include/hcidefs.h b/external/bluetooth/bluedroid/stack/include/hcidefs.h
+index 0349d6a..1de284a 100644
+--- a/external/bluetooth/bluedroid/stack/include/hcidefs.h
++++ b/external/bluetooth/bluedroid/stack/include/hcidefs.h
+@@ -1325,7 +1325,10 @@ typedef struct
+ #define HCI_BRCM_ACL_PRIORITY_LOW           0x00
+ #define HCI_BRCM_ACL_PRIORITY_HIGH          0xFF
+ #define HCI_BRCM_SET_ACL_PRIORITY           (0x0057 | HCI_GRP_VENDOR_SPECIFIC)
+-
++#define HCI_BRCM_SET_A2DP_PRIORITY          (0x011A | HCI_GRP_VENDOR_SPECIFIC)
++#define HCI_BRCM_ACL_PRIORITY_NORMAL        0x00
++#define HCI_BRCM_ACL_PRIORITY_A2DP          0x01
++#define HCI_BRCM_ACL_PRIORITY_A2DP_PARAM_SIZE    4
+ /* Define values for LMP Test Control parameters
+ ** Test Scenario, Hopping Mode, Power Control Mode
+ */
+diff --git a/external/bluetooth/bluedroid/stack/l2cap/l2c_utils.c b/external/bluetooth/bluedroid/stack/l2cap/l2c_utils.c
+index 77849ac..dd39bd1 100644
+--- a/external/bluetooth/bluedroid/stack/l2cap/l2c_utils.c
++++ b/external/bluetooth/bluedroid/stack/l2cap/l2c_utils.c
+@@ -2499,6 +2499,7 @@ BOOLEAN l2cu_set_acl_priority (BD_ADDR bd_addr, UINT8 priority, BOOLEAN reset_af
+     UINT8               *pp;
+     UINT8                command[HCI_BRCM_ACL_PRIORITY_PARAM_SIZE];
+     UINT8                vs_param;
++    UINT8                type_param;
+ 
+     APPL_TRACE_EVENT("SET ACL PRIORITY %d", priority);
+ 
+@@ -2518,13 +2519,18 @@ BOOLEAN l2cu_set_acl_priority (BD_ADDR bd_addr, UINT8 priority, BOOLEAN reset_af
+         {
+             pp = command;
+ 
+-            vs_param = (priority == L2CAP_PRIORITY_HIGH) ? HCI_BRCM_ACL_PRIORITY_HIGH : HCI_BRCM_ACL_PRIORITY_LOW;
+-
+-            UINT16_TO_STREAM (pp, p_lcb->handle);
+-            UINT8_TO_STREAM  (pp, vs_param);
+-
+-            BTM_VendorSpecificCommand (HCI_BRCM_SET_ACL_PRIORITY, HCI_BRCM_ACL_PRIORITY_PARAM_SIZE, command, NULL);
+-
++            //vs_param = (priority == L2CAP_PRIORITY_HIGH) ? HCI_BRCM_ACL_PRIORITY_HIGH : HCI_BRCM_ACL_PRIORITY_LOW;
++            vs_param = (priority == L2CAP_PRIORITY_HIGH) ? HCI_BRCM_ACL_PRIORITY_A2DP: HCI_BRCM_ACL_PRIORITY_NORMAL;
++            type_param = 0x01;
++ 
++            L2CAP_TRACE_ERROR("--lfy--: SET ACL PRIORITY %d", priority);
++             UINT16_TO_STREAM (pp, p_lcb->handle);
++             UINT8_TO_STREAM  (pp, vs_param);
++            UINT8_TO_STREAM  (pp, type_param);
++ 
++            //BTM_VendorSpecificCommand (HCI_BRCM_SET_ACL_PRIORITY, HCI_BRCM_ACL_PRIORITY_PARAM_SIZE, command, NULL);
++            BTM_VendorSpecificCommand (HCI_BRCM_SET_A2DP_PRIORITY, HCI_BRCM_ACL_PRIORITY_A2DP_PARAM_SIZE, command, NULL);
++ 
+             /* Adjust lmp buffer allocation for this channel if priority changed */
+             if (p_lcb->acl_priority != priority)
+             {
+diff --git a/frameworks/av/services/audiopolicy/AudioPolicyManager.cpp b/frameworks/av/services/audiopolicy/AudioPolicyManager.cpp
+index ddb3c25..4658968 100644
+--- a/frameworks/av/services/audiopolicy/AudioPolicyManager.cpp
++++ b/frameworks/av/services/audiopolicy/AudioPolicyManager.cpp
+@@ -5859,6 +5859,11 @@ audio_devices_t AudioPolicyManager::getDeviceForInputSource(audio_source_t input
+             device = AUDIO_DEVICE_IN_FM_TUNER;
+         }
+         break;
++     case AUDIO_SOURCE_BLUETOOTH_A2DP:
++        if (availableDeviceTypes & AUDIO_DEVICE_IN_BLUETOOTH_A2DP) {
++           device = AUDIO_DEVICE_IN_BLUETOOTH_A2DP;
++        }
++        break;
+     default:
+         ALOGW("getDeviceForInputSource() invalid input source %d", inputSource);
+         break;
+diff --git a/frameworks/base/media/java/android/media/AudioAttributes.java b/frameworks/base/media/java/android/media/AudioAttributes.java
+index e221e85..fc5a17f 100644
+--- a/frameworks/base/media/java/android/media/AudioAttributes.java
++++ b/frameworks/base/media/java/android/media/AudioAttributes.java
+@@ -540,7 +540,8 @@ public final class AudioAttributes implements Parcelable {
+         public Builder setInternalCapturePreset(int preset) {
+             if ((preset == MediaRecorder.AudioSource.HOTWORD)
+                     || (preset == MediaRecorder.AudioSource.REMOTE_SUBMIX)
+-                    || (preset == MediaRecorder.AudioSource.FM_TUNER)) {
++                    || (preset == MediaRecorder.AudioSource.FM_TUNER)
++                    || (preset == MediaRecorder.AudioSource.BLUETOOTH_A2DP)) {
+                 mSource = preset;
+             } else {
+                 setCapturePreset(preset);
+diff --git a/frameworks/base/media/java/android/media/AudioManager.java b/frameworks/base/media/java/android/media/AudioManager.java
+index 240faef..ba1f577 100644
+--- a/frameworks/base/media/java/android/media/AudioManager.java
++++ b/frameworks/base/media/java/android/media/AudioManager.java
+@@ -1632,8 +1632,11 @@ public class AudioManager {
+      *         false if otherwise
+      */
+     public boolean isBluetoothA2dpOn() {
+-        if (AudioSystem.getDeviceConnectionState(DEVICE_OUT_BLUETOOTH_A2DP,"")
+-            == AudioSystem.DEVICE_STATE_UNAVAILABLE) {
++        if ((AudioSystem.getDeviceConnectionState(DEVICE_OUT_BLUETOOTH_A2DP,"")
++            == AudioSystem.DEVICE_STATE_UNAVAILABLE) || 
++            (AudioSystem.getDeviceConnectionState(DEVICE_IN_BLUETOOTH_A2DP,"")
++                == AudioSystem.DEVICE_STATE_UNAVAILABLE)) 
++        {
+             return false;
+         } else {
+             return true;
+@@ -3028,6 +3031,11 @@ public class AudioManager {
+     /** @hide
+      * The audio output device code for generic Bluetooth A2DP, for music */
+     public static final int DEVICE_OUT_BLUETOOTH_A2DP = AudioSystem.DEVICE_OUT_BLUETOOTH_A2DP;
++
++	/** @hide
++	*/
++    public static final int DEVICE_IN_BLUETOOTH_A2DP = AudioSystem.DEVICE_IN_BLUETOOTH_A2DP;
++
+     /** @hide
+      * The audio output device code for Bluetooth A2DP headphones, for music */
+     public static final int DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES =
+diff --git a/frameworks/base/media/java/android/media/MediaRecorder.java b/frameworks/base/media/java/android/media/MediaRecorder.java
+index 1df93b5..ccb8a97 100755
+--- a/frameworks/base/media/java/android/media/MediaRecorder.java
++++ b/frameworks/base/media/java/android/media/MediaRecorder.java
+@@ -264,6 +264,12 @@ public class MediaRecorder
+          */
+         public static final int REMOTE_SUBMIX = 8;
+ 
++	/**
++	* @hide
++	* A2DP audio.
++	*/
++	public static final int BLUETOOTH_A2DP = 9;
++
+         /**
+          * Audio source for FM, which is used to capture current FM tuner output by FMRadio app.
+          * There are two use cases, one is for record FM stream for later listening, another is
+@@ -418,7 +424,8 @@ public class MediaRecorder
+      * @see android.media.MediaRecorder.AudioSource
+      */
+     public static final int getAudioSourceMax() {
+-        return AudioSource.REMOTE_SUBMIX;
++        //return AudioSource.REMOTE_SUBMIX;
++ 	return AudioSource.BLUETOOTH_A2DP;
+     }
+ 
+     /**
+diff --git a/hardware/libhardware_legacy/audio/AudioPolicyManagerBase.cpp b/hardware/libhardware_legacy/audio/AudioPolicyManagerBase.cpp
+index 74070fd..c4ff93f 100644
+--- a/hardware/libhardware_legacy/audio/AudioPolicyManagerBase.cpp
++++ b/hardware/libhardware_legacy/audio/AudioPolicyManagerBase.cpp
+@@ -2954,6 +2954,12 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForInputSource(int inputSource)
+             device = AUDIO_DEVICE_IN_REMOTE_SUBMIX;
+         }
+         break;
++    case AUDIO_SOURCE_BLUETOOTH_A2DP:
++        if (mAvailableInputDevices & AUDIO_DEVICE_IN_BLUETOOTH_A2DP) {
++            device = AUDIO_DEVICE_IN_BLUETOOTH_A2DP;
++        }
++        break;
++		
+     default:
+         ALOGW("getDeviceForInputSource() invalid input source %d", inputSource);
+         break;
+diff --git a/kernel/cht/drivers/tty/serial/hsu/hsu_core.c b/kernel/cht/drivers/tty/serial/hsu/hsu_core.c
+index ceb3dda..e9c2bcd 100644
+--- a/kernel/cht/drivers/tty/serial/hsu/hsu_core.c
++++ b/kernel/cht/drivers/tty/serial/hsu/hsu_core.c
+@@ -1823,7 +1823,7 @@ static void serial_hsu_command(struct uart_hsu_port *up)
+ 						 */
+ 						up->dma_ops->stop_rx(up);
+ 						receive_chars(up, &lsr);
+-					} //else
++					} else
+ 					up->dma_ops->start_rx(up);
+ 				}
+ 			}
+diff --git a/packages/apps/Bluetooth/AndroidManifest.xml b/packages/apps/Bluetooth/AndroidManifest.xml
+index e879a75..7df66b5 100644
+--- a/packages/apps/Bluetooth/AndroidManifest.xml
++++ b/packages/apps/Bluetooth/AndroidManifest.xml
+@@ -17,6 +17,7 @@
+         android:description="@string/permdesc_bluetoothWhitelist"
+         android:protectionLevel="signature" />
+ 
++    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+     <uses-permission android:name="android.permission.ACCESS_BLUETOOTH_SHARE" />
+     <uses-permission android:name="android.permission.INTERNET" />
+diff --git a/packages/apps/Bluetooth/res/values/config.xml b/packages/apps/Bluetooth/res/values/config.xml
+index f2b4ebb..dff42da 100644
+--- a/packages/apps/Bluetooth/res/values/config.xml
++++ b/packages/apps/Bluetooth/res/values/config.xml
+@@ -14,7 +14,7 @@
+ -->
+ <resources>
+     <bool name="profile_supported_a2dp">true</bool>
+-    <bool name="profile_supported_a2dp_sink">false</bool>
++    <bool name="profile_supported_a2dp_sink">true</bool>
+     <bool name="profile_supported_hdp">true</bool>
+     <bool name="profile_supported_hs_hfp">true</bool>
+     <bool name="profile_supported_hfpclient">false</bool>
+diff --git a/packages/apps/Bluetooth/src/com/android/bluetooth/a2dp/A2dpSinkStateMachine.java b/packages/apps/Bluetooth/src/com/android/bluetooth/a2dp/A2dpSinkStateMachine.java
+index d57a0ca..670b084 100644
+--- a/packages/apps/Bluetooth/src/com/android/bluetooth/a2dp/A2dpSinkStateMachine.java
++++ b/packages/apps/Bluetooth/src/com/android/bluetooth/a2dp/A2dpSinkStateMachine.java
+@@ -38,6 +38,9 @@ import android.bluetooth.IBluetooth;
+ import android.content.Context;
+ import android.media.AudioFormat;
+ import android.media.AudioManager;
++import android.media.AudioRecord;
++import android.media.AudioTrack;
++import android.media.MediaRecorder.AudioSource;
+ import android.os.Handler;
+ import android.os.Message;
+ import android.os.ParcelUuid;
+@@ -61,7 +64,14 @@ import java.util.HashMap;
+ import java.util.Set;
+ 
+ final class A2dpSinkStateMachine extends StateMachine {
+-    private static final boolean DBG = false;
++   // private AudioRecord recorder;
++   // private AudioTrack player;
++   // private int recorder_buf_size;
++   // private int player_buf_size;
++   // private boolean mThreadExitFlag = false;
++   // private boolean isPlaying = false;
++	
++    private static final boolean DBG = true;
+ 
+     static final int CONNECT = 1;
+     static final int DISCONNECT = 2;
+@@ -138,8 +148,62 @@ final class A2dpSinkStateMachine extends StateMachine {
+         mIntentBroadcastHandler = new IntentBroadcastHandler();
+ 
+         mAudioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
++	//	recorder_buf_size = AudioRecord.getMinBufferSize(44100, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT);
++      //  player_buf_size = AudioTrack.getMinBufferSize(44100, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT);
+     }
+-
++    
++//	private void cleanAudioTrack()
++	//	{
++	//		audioPause();
++	//		mThreadExitFlag = true;
++	//		if (recorder != null) {
++		//		recorder.release();
++		//		recorder = null;
++		//	}
++		//	if (player != null) {
++		//		player.release();
++		//		player = null;
++		//	}
++	//	}
++		//private void initAudioTrack() 
++		//{
++		//	if (recorder == null) {
++			//	recorder = new AudioRecord(AudioSource.BLUETOOTH_A2DP,
++			//		44100,
++				//	AudioFormat.CHANNEL_IN_STEREO,
++				//	AudioFormat.ENCODING_PCM_16BIT,
++				//	recorder_buf_size
++				//	);
++			//}
++	
++			//if (player == null) {
++			//	player = new AudioTrack(AudioManager.STREAM_MUSIC,
++			//		44100,
++			//		AudioFormat.CHANNEL_OUT_STEREO,
++			//		AudioFormat.ENCODING_PCM_16BIT,
++			//		player_buf_size,
++			//		AudioTrack.MODE_STREAM
++			//		);
++			//}
++		//}
++		//private void audioPlay()
++		//{
++		//	initAudioTrack();
++		//	if (isPlaying == false) {
++			//	isPlaying = true;
++			//	mThreadExitFlag = false;
++			//	new RecordThread().start();
++			//}
++		//}
++		//private void audioPause()
++		//{
++		//	if (isPlaying == true) {
++			//	isPlaying = false;
++			//	mThreadExitFlag = true;
++			//	recorder.stop();
++			//	player.stop();
++			//}
++		//}
+     static A2dpSinkStateMachine make(A2dpSinkService svc, Context context) {
+         Log.d("A2dpSinkStateMachine", "make");
+         A2dpSinkStateMachine a2dpSm = new A2dpSinkStateMachine(svc, context);
+@@ -167,6 +231,8 @@ final class A2dpSinkStateMachine extends StateMachine {
+         @Override
+         public void enter() {
+             log("Enter Disconnected: " + getCurrentMessage().what);
++			
++			//cleanAudioTrack();
+         }
+ 
+         @Override
+@@ -578,11 +644,13 @@ final class A2dpSinkStateMachine extends StateMachine {
+             }
+             switch (state) {
+                 case AUDIO_STATE_STARTED:
++				    //audioPlay();
+                     broadcastAudioState(device, BluetoothA2dpSink.STATE_PLAYING,
+                                         BluetoothA2dpSink.STATE_NOT_PLAYING);
+                     break;
+                 case AUDIO_STATE_REMOTE_SUSPEND:
+                 case AUDIO_STATE_STOPPED:
++				    //audioPause();
+                     broadcastAudioState(device, BluetoothA2dpSink.STATE_NOT_PLAYING,
+                                         BluetoothA2dpSink.STATE_PLAYING);
+                     break;
+@@ -699,7 +767,12 @@ final class A2dpSinkStateMachine extends StateMachine {
+         intent.putExtra(BluetoothProfile.EXTRA_STATE, state);
+ //FIXME        intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
+         mContext.sendBroadcast(intent, ProfileService.BLUETOOTH_PERM);
+-
++        Intent intent_sink = new Intent("android.bluetooth.a2dpsink.profile.action.PLAYING_STATE_CHANGED");
++        intent_sink.putExtra(BluetoothDevice.EXTRA_DEVICE, device);
++        intent_sink.putExtra(BluetoothProfile.EXTRA_PREVIOUS_STATE, prevState);
++        intent_sink.putExtra(BluetoothProfile.EXTRA_STATE, state);
++        intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
++        mContext.sendBroadcast(intent_sink,ProfileService.BLUETOOTH_PERM);
+         log("A2DP Playing state : device: " + device + " State:" + prevState + "->" + state);
+     }
+ 
+@@ -765,6 +838,13 @@ final class A2dpSinkStateMachine extends StateMachine {
+             intent.putExtra(BluetoothDevice.EXTRA_DEVICE, device);
+ //FIXME            intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
+             mContext.sendBroadcast(intent, ProfileService.BLUETOOTH_PERM);
++
++            Intent intent_sink = new Intent("android.bluetooth.a2dpsink.profile.action.CONNECTION_STATE_CHANGED");
++            intent_sink.putExtra(BluetoothProfile.EXTRA_PREVIOUS_STATE, prevState);
++            intent_sink.putExtra(BluetoothProfile.EXTRA_STATE, state);
++            intent_sink.putExtra(BluetoothDevice.EXTRA_DEVICE, device);
++            intent_sink.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
++            mContext.sendBroadcast(intent_sink, ProfileService.BLUETOOTH_PERM);            
+             log("Connection state " + device + ": " + prevState + "->" + state);
+             mService.notifyProfileConnectionStateChanged(device, BluetoothProfile.A2DP_SINK,
+                     state, prevState);
+@@ -806,4 +886,29 @@ final class A2dpSinkStateMachine extends StateMachine {
+     private native void cleanupNative();
+     private native boolean connectA2dpNative(byte[] address);
+     private native boolean disconnectA2dpNative(byte[] address);
++    //class RecordThread  extends Thread{
++     //   @Override
++     //   public void run() {
++       //     byte[] buffer = new byte[recorder_buf_size];
++         //   recorder.startRecording();
++          //  player.play();
++          //  while(true) {
++           //     if (mThreadExitFlag == true) {
++            //        break;
++              //  }
++              //  try {
++                 //   int res = recorder.read(buffer, 0, recorder_buf_size);
++                  //  if (res>0) {
++                    //    byte[] tmpBuf = new byte[res];
++                      //  System.arraycopy(buffer, 0, tmpBuf, 0, res);
++                      //  player.write(tmpBuf, 0, tmpBuf.length);
++                   // }
++
++               // } catch (Exception e) {
++               //     e.printStackTrace();
++               //     break;
++               // }
++           // }
++       // }
++    //}
+ }
+diff --git a/packages/apps/Settings/src/com/android/settings/bluetooth/BluetoothPairingDialog.java b/packages/apps/Settings/src/com/android/settings/bluetooth/BluetoothPairingDialog.java
+index 6f5c136..f8d00a5 100755
+--- a/packages/apps/Settings/src/com/android/settings/bluetooth/BluetoothPairingDialog.java
++++ b/packages/apps/Settings/src/com/android/settings/bluetooth/BluetoothPairingDialog.java
+@@ -65,7 +65,11 @@ public final class BluetoothPairingDialog extends AlertActivity implements
+     private String mPairingKey;
+     private EditText mPairingView;
+     private Button mOkButton;
+-
++    
++    //---------add by linfayang for auto pairing -------------start---------  
++    private Button mPositiveButton;
++    private Button mConsentButton;
++    //---------add by linfayang for auto pairing -------------end---------
+     /**
+      * Dismiss the dialog if the bond state changes to bonded or none,
+      * or if pairing was canceled for {@link #mDevice}.
+@@ -277,6 +281,10 @@ public final class BluetoothPairingDialog extends AlertActivity implements
+         p.mNegativeButtonText = getString(R.string.bluetooth_pairing_decline);
+         p.mNegativeButtonListener = this;
+         setupAlert();
++        //---------add by linfayang for auto pairing -------------start---------
++        mPositiveButton=mAlert.getButton(BUTTON_POSITIVE);
++        mPositiveButton.performClick();
++        //---------add by linfayang for auto pairing -------------start---------
+     }
+ 
+     private void createConsentDialog() {
+diff --git a/packages/apps/Settings/src/com/android/settings/bluetooth/BluetoothSettings.java b/packages/apps/Settings/src/com/android/settings/bluetooth/BluetoothSettings.java
+index 1a1c56a..a487071 100755
+--- a/packages/apps/Settings/src/com/android/settings/bluetooth/BluetoothSettings.java
++++ b/packages/apps/Settings/src/com/android/settings/bluetooth/BluetoothSettings.java
+@@ -101,18 +101,26 @@ public final class BluetoothSettings extends DeviceListPreferenceFragment implem
+             final String action = intent.getAction();
+             final int state =
+                 intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
+-
++           //  Log.e("lfy", "state 1= "+state);
+             if (action.equals(BluetoothAdapter.ACTION_LOCAL_NAME_CHANGED)) {
++             //   Log.e("lfy", "state");
+                 updateDeviceName(context);
+             }
+-        }
++            
++	        if (action.equals(BluetoothAdapter.ACTION_STATE_CHANGED)) {
++	        //	Log.e("lfy", "state 2= "+state);
+ 
++	        }
++	        
++        }
++       
+         private void updateDeviceName(Context context) {
+             if (mLocalAdapter.isEnabled() && mMyDevicePreference != null) {
+                 mMyDevicePreference.setSummary(context.getResources().getString(
+                             R.string.bluetooth_is_visible_message, mLocalAdapter.getName()));
+             }
+         }
++
+     };
+ 
+     public BluetoothSettings() {
+@@ -182,8 +190,9 @@ public final class BluetoothSettings extends DeviceListPreferenceFragment implem
+         }
+ 
+         // Make the device only visible to connected devices.
+-        mLocalAdapter.setScanMode(BluetoothAdapter.SCAN_MODE_CONNECTABLE);
+-
++        //modify by linfayang 
++       // mLocalAdapter.setScanMode(BluetoothAdapter.SCAN_MODE_CONNECTABLE);
++        //modify by linfayang 
+         if (isUiRestricted()) {
+             return;
+         }
+@@ -334,8 +343,11 @@ public final class BluetoothSettings extends DeviceListPreferenceFragment implem
+                 // threads to execute.
+                 if (mInitiateDiscoverable) {
+                     // Make the device visible to other devices.
+-                    mLocalAdapter.setScanMode(BluetoothAdapter.SCAN_MODE_CONNECTABLE_DISCOVERABLE);
+-                    mInitiateDiscoverable = false;
++                    //Log.e(TAG, "--lfy--SCAN_MODE_CONNECTABLE_DISCOVERABLE: ");
++                   // mLocalAdapter.setScanMode(BluetoothAdapter.SCAN_MODE_CONNECTABLE_DISCOVERABLE);
++                    //modify by linfayang 
++                    //mInitiateDiscoverable = false;
++                    //modify by linfayang
+                 }
+                 return; // not break
+ 
+@@ -367,7 +379,6 @@ public final class BluetoothSettings extends DeviceListPreferenceFragment implem
+     @Override
+     public void onBluetoothStateChanged(int bluetoothState) {
+         super.onBluetoothStateChanged(bluetoothState);
+-
+         if (bluetoothState == BluetoothAdapter.STATE_ON) {
+             mInitiateDiscoverable = true;
+         }
+@@ -483,6 +494,8 @@ public final class BluetoothSettings extends DeviceListPreferenceFragment implem
+         if (cachedDevice.getBondState() == BluetoothDevice.BOND_BONDED) {
+             // Only paired device have an associated advanced settings screen
+             preference.setOnSettingsClickListener(mDeviceProfilesListener);
++            //Log.e(TAG, "--lfy---BluetoothDevice.BOND_BONDED");
++
+         }
+     }
+ 
+diff --git a/packages/apps/Settings/src/com/android/settings/bluetooth/LocalBluetoothPreferences.java b/packages/apps/Settings/src/com/android/settings/bluetooth/LocalBluetoothPreferences.java
+index f00b801..23653fd 100644
+--- a/packages/apps/Settings/src/com/android/settings/bluetooth/LocalBluetoothPreferences.java
++++ b/packages/apps/Settings/src/com/android/settings/bluetooth/LocalBluetoothPreferences.java
+@@ -67,7 +67,9 @@ final class LocalBluetoothPreferences {
+         }
+ 
+         // If Bluetooth Settings is visible
+-        if (manager.isForegroundActivity()) {
++	// visibility cannot be decided by only isForegroundActivity.
++	// Always show the pairing request dialog if LocalBluetoothManager is alive
++        if (true/*manager.isForegroundActivity()*/) {
+             return true;
+         }
+ 
+diff --git a/system/core/include/system/audio.h b/system/core/include/system/audio.h
+index 18fb484..273a5c4 100644
+--- a/system/core/include/system/audio.h
++++ b/system/core/include/system/audio.h
+@@ -141,6 +141,7 @@ typedef enum {
+                                           /* An example of remote presentation is Wifi Display */
+                                           /*  where a dongle attached to a TV can be used to   */
+                                           /*  play the mix captured by this audio source.      */
++    AUDIO_SOURCE_BLUETOOTH_A2DP     = 9,
+     AUDIO_SOURCE_CNT,
+     AUDIO_SOURCE_MAX                 = AUDIO_SOURCE_CNT - 1,
+     AUDIO_SOURCE_FM_TUNER            = 1998,
+diff --git a/vendor/intel/apps/bluetooth_control/Android.mk b/vendor/intel/apps/bluetooth_control/Android.mk
+index d1f9553..f07c1ab 100644
+--- a/vendor/intel/apps/bluetooth_control/Android.mk
++++ b/vendor/intel/apps/bluetooth_control/Android.mk
+@@ -1,4 +1,5 @@
+ LOCAL_PATH := $(call my-dir)
++ifeq ($(BOARD_HAVE_BLUETOOTH_CONTROL), true)
+ include $(CLEAR_VARS)
+ # Module name should match apk name to be installed
+ LOCAL_MODULE := bluetooth_control
+@@ -13,3 +14,4 @@ LOCAL_CERTIFICATE := PRESIGNED
+ LOCAL_DEX_PREOPT := true
+ #LOCAL_PRIVILEGED_MODULE := true
+ include $(BUILD_PREBUILT)
++endif # BOARD_HAVE_BLUETOOTH_CONTROL
+\ No newline at end of file

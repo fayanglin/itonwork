@@ -1,0 +1,1114 @@
+diff --git a/device/intel/cherrytrail/cht_cr_mrd_w/init.rc b/device/intel/cherrytrail/cht_cr_mrd_w/init.rc
+index 15949af..637e69f 100755
+--- a/device/intel/cherrytrail/cht_cr_mrd_w/init.rc
++++ b/device/intel/cherrytrail/cht_cr_mrd_w/init.rc
+@@ -891,6 +891,10 @@ on post-fs-data
+     chmod 0777 /sys/bus/i2c/devices/i2c-2/2-0048/delay
+     chmod 0777 /dev/bt_event
+     chown system system  /dev/bt_event
++
++    chmod 0777 /dev/tas5711
++    chown system system  /dev/tas5711
++
+ #Set Sensor patch
+     chmod 0777 /sys/bus/i2c/devices/2-0018/enable
+     chmod 0777 /sys/bus/i2c/devices/2-0018/delay
+diff --git a/external/bluetooth/bluedroid/stack/avct/avct_ccb.c b/external/bluetooth/bluedroid/stack/avct/avct_ccb.c
+index f2c821c..96a6b06 100644
+--- a/external/bluetooth/bluedroid/stack/avct/avct_ccb.c
++++ b/external/bluetooth/bluedroid/stack/avct/avct_ccb.c
+@@ -28,7 +28,7 @@
+ #include "bt_target.h"
+ #include "avct_api.h"
+ #include "avct_int.h"
+-
++#include <cutils/properties.h>
+ /*******************************************************************************
+ **
+ ** Function         avct_ccb_alloc
+@@ -128,7 +128,7 @@ UINT8 avct_ccb_to_idx(tAVCT_CCB *p_ccb)
+ tAVCT_CCB *avct_ccb_by_idx(UINT8 idx)
+ {
+     tAVCT_CCB   *p_ccb;
+-
++    char propbuf[PROPERTY_VALUE_MAX] = {0};
+     /* verify index */
+     if (idx < AVCT_NUM_CONN)
+     {
+@@ -139,6 +139,13 @@ tAVCT_CCB *avct_ccb_by_idx(UINT8 idx)
+         {
+             p_ccb = NULL;
+             AVCT_TRACE_WARNING("ccb %d not allocated", idx);
++            property_get("persist.sys.btreconnect", propbuf, 0);
++            AVCT_TRACE_WARNING("brfore lfy  persist.sys.btreconnect:%s", propbuf);
++            property_set("persist.sys.btreconnect", "1");
++            property_get("persist.sys.btreconnect", propbuf, 0);
++            AVCT_TRACE_WARNING("after lfy persist.sys.btreconnect:%s", propbuf);
++
++
+         }
+     }
+     else
+diff --git a/external/wpa_supplicant_8_bcm/wpa_supplicant/bestchannel.c b/external/wpa_supplicant_8_bcm/wpa_supplicant/bestchannel.c
+index 3d1a37f..95856548 100644
+--- a/external/wpa_supplicant_8_bcm/wpa_supplicant/bestchannel.c
++++ b/external/wpa_supplicant_8_bcm/wpa_supplicant/bestchannel.c
+@@ -167,7 +167,7 @@ int best_channel_add_ap(struct wpa_supplicant *wpa_s,
+ 	int index = channel2index(channel);
+ 
+ 	if (index == -1) {
+-		wpa_printf(MSG_ERROR,
++		wpa_printf(MSG_DEBUG,
+ 				"Add access point on channel %d [UNSUPPORTED]", channel);
+ 		return -1;
+ 	}
+diff --git a/external/wpa_supplicant_8_bcm/wpa_supplicant/config_file.c b/external/wpa_supplicant_8_bcm/wpa_supplicant/config_file.c
+index 3379b7b..e428cc1 100644
+--- a/external/wpa_supplicant_8_bcm/wpa_supplicant/config_file.c
++++ b/external/wpa_supplicant_8_bcm/wpa_supplicant/config_file.c
+@@ -1240,6 +1240,10 @@ static void wpa_config_write_global(FILE *f, struct wpa_config *config)
+ 
+ int wpa_config_write(const char *name, struct wpa_config *config)
+ {
++
++     char buffer[10000]; 
++	FILE *srcFile;
++	FILE *dstFile;
+ #ifndef CONFIG_NO_CONFIG_WRITE
+ 	FILE *f;
+ 	struct wpa_ssid *ssid;
+@@ -1294,17 +1298,18 @@ int wpa_config_write(const char *name, struct wpa_config *config)
+ 			break;
+ 	}
+ #endif /* CONFIG_NO_CONFIG_BLOBS */
+-
++       fflush(f);
++       fsync(fileno(f));
+ 	fclose(f);
+-
+ 	if (tmp_name != name) {
+ 		int chmod_ret = 0;
+ #ifdef ANDROID
+ 		chmod_ret = chmod(tmp_name, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+ #endif
++		 system("/system/bin/cp /data/misc/wifi/wpa_supplicant.conf.tmp  /data/misc/wifi/lfy_supplicant.conf");
+ 		if (chmod_ret != 0 || rename(tmp_name, name) != 0)
+ 			ret = -1;
+-
++	     
+ 		os_free(tmp_name);
+ 	}
+ 
+diff --git a/external/wpa_supplicant_8_bcm/wpa_supplicant/ctrl_iface.c b/external/wpa_supplicant_8_bcm/wpa_supplicant/ctrl_iface.c
+index 033f182..d2ecd67 100644
+--- a/external/wpa_supplicant_8_bcm/wpa_supplicant/ctrl_iface.c
++++ b/external/wpa_supplicant_8_bcm/wpa_supplicant/ctrl_iface.c
+@@ -5,7 +5,8 @@
+  * This software may be distributed under the terms of the BSD license.
+  * See README for more details.
+  */
+-
++#include <stdio.h>
++#include <stdlib.h>
+ #include "utils/includes.h"
+ 
+ #include "utils/common.h"
+@@ -2529,8 +2530,9 @@ static int wpa_supplicant_ctrl_iface_enable_network(
+ 			return 0;
+ 		}
+ 	}
++	//system("cp /data/misc/wifi/wpa_supplicant.conf  /data/misc/wifi/a.conf");
+ 	wpa_supplicant_enable_network(wpa_s, ssid);
+-
++	//wpa_printf(MSG_ERROR, "--lfy--wpa_supplicant_enable_network");
+ 	return 0;
+ }
+ 
+@@ -2575,6 +2577,7 @@ static int wpa_supplicant_ctrl_iface_add_network(
+ 	int ret;
+ 
+ 	wpa_printf(MSG_DEBUG, "CTRL_IFACE: ADD_NETWORK");
++	//wpa_printf(MSG_ERROR, "--lfy--CTRL_IFACE: ADD_NETWORK");
+ 
+ 	ssid = wpa_config_add_network(wpa_s->conf);
+ 	if (ssid == NULL)
+@@ -2676,7 +2679,7 @@ static int wpa_supplicant_ctrl_iface_remove_network(
+ 		wpa_supplicant_cancel_sched_scan(wpa_s);
+ 		wpa_supplicant_req_scan(wpa_s, 0, 0);
+ 	}
+-
++	//wpa_printf(MSG_ERROR, "--lfy--CTRL_IFACE: REMOVE_NETWORK");
+ 	return 0;
+ }
+ 
+@@ -2685,6 +2688,7 @@ static int wpa_supplicant_ctrl_iface_update_network(
+ 	struct wpa_supplicant *wpa_s, struct wpa_ssid *ssid,
+ 	char *name, char *value)
+ {
++
+ 	if (wpa_config_set(ssid, name, value, 0) < 0) {
+ 		wpa_printf(MSG_DEBUG, "CTRL_IFACE: Failed to set network "
+ 			   "variable '%s'", name);
+@@ -2736,6 +2740,10 @@ static int wpa_supplicant_ctrl_iface_set_network(
+ 	id = atoi(cmd);
+ 	wpa_printf(MSG_DEBUG, "CTRL_IFACE: SET_NETWORK id=%d name='%s'",
+ 		   id, name);
++
++	//wpa_printf(MSG_ERROR, "--lfy--CTRL_IFACE: SET_NETWORK id=%d name='%s'",
++	//	   id, name);
++	
+ 	wpa_hexdump_ascii_key(MSG_DEBUG, "CTRL_IFACE: value",
+ 			      (u8 *) value, os_strlen(value));
+ 
+@@ -2754,6 +2762,9 @@ static int wpa_supplicant_ctrl_iface_set_network(
+ 	    (ssid->bssid_set != prev_bssid_set ||
+ 	     os_memcmp(ssid->bssid, prev_bssid, ETH_ALEN) != 0))
+ 		wpas_notify_network_bssid_set_changed(wpa_s, ssid);
++	//system("rm  /data/misc/wifi/a.conf");
++	//system("cp /data/misc/wifi/wpa_supplicant.conf  /data/misc/wifi/a.conf");
++	//system("cp /data/misc/wifi/wpa_supplicant.conf  /data/misc/wifi/a.conf");
+ 	return ret;
+ }
+ 
+@@ -3106,7 +3117,7 @@ static int wpa_supplicant_ctrl_iface_save_config(struct wpa_supplicant *wpa_s)
+ 			   "to update configuration (update_config=0)");
+ 		return -1;
+ 	}
+-
++	wpa_printf(MSG_ERROR, "CTRL_IFACE: SAVE_CONFIG -wpa_s->confname = %s ",wpa_s->confname);
+ 	ret = wpa_config_write(wpa_s->confname, wpa_s->conf);
+ 	if (ret) {
+ 		wpa_printf(MSG_DEBUG, "CTRL_IFACE: SAVE_CONFIG - Failed to "
+@@ -3115,7 +3126,8 @@ static int wpa_supplicant_ctrl_iface_save_config(struct wpa_supplicant *wpa_s)
+ 		wpa_printf(MSG_DEBUG, "CTRL_IFACE: SAVE_CONFIG - Configuration"
+ 			   " updated");
+ 	}
+-
++	//system("rm  /data/misc/wifi/a.conf");
++	//system("cp /data/misc/wifi/wpa_supplicant.conf  /data/misc/wifi/a.conf");
+ 	return ret;
+ }
+ #endif /* CONFIG_NO_CONFIG_WRITE */
+@@ -6635,7 +6647,7 @@ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
+ 	char *reply;
+ 	const int reply_size = 4096;
+ 	int reply_len;
+-
++        //wpa_dbg(wpa_s, MSG_ERROR,"--lfy--debug '%s'",buf);
+ 	if (os_strncmp(buf, WPA_CTRL_RSP, os_strlen(WPA_CTRL_RSP)) == 0 ||
+ 	    os_strncmp(buf, "SET_NETWORK ", 12) == 0) {
+ 		if (wpa_debug_show_keys)
+@@ -7167,7 +7179,7 @@ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
+ #endif /* CONFIG_AUTOSCAN */
+ #ifdef ANDROID
+ 	} else if (os_strncmp(buf, "DRIVER ", 7) == 0) {    
+-                wpa_dbg(wpa_s, MSG_DEBUG,"--lzk--debug '%s'",buf);
++             //   wpa_dbg(wpa_s, MSG_ERROR,"--lfy--debug '%s'",buf);
+ #if 0 //ndef WAPI
+                 if(os_strncmp(buf, "DRIVER COUNTRY", 14) != 0)        
+ #endif
+diff --git a/external/wpa_supplicant_8_bcm/wpa_supplicant/main.c b/external/wpa_supplicant_8_bcm/wpa_supplicant/main.c
+index fdde9d2..05a0adb 100644
+--- a/external/wpa_supplicant_8_bcm/wpa_supplicant/main.c
++++ b/external/wpa_supplicant_8_bcm/wpa_supplicant/main.c
+@@ -297,7 +297,6 @@ int main(int argc, char *argv[])
+ 			goto out;
+ 		}
+ 	}
+-
+ 	exitcode = 0;
+ 	global = wpa_supplicant_init(&params);
+ 	if (global == NULL) {
+diff --git a/frameworks/base/api/current.txt b/frameworks/base/api/current.txt
+index b7173bd..289d63c 100755
+--- a/frameworks/base/api/current.txt
++++ b/frameworks/base/api/current.txt
+@@ -4325,6 +4325,42 @@ package android.app {
+     field public static final int TRANSIT_UNSET = -1; // 0xffffffff
+   }
+ 
++  public abstract interface ILedDemoService implements android.os.IInterface {
++    method public abstract int led_getSingelRGBpallette(int) throws android.os.RemoteException;
++    method public abstract int led_get_brightness(int) throws android.os.RemoteException;
++    method public abstract int led_get_colors(int) throws android.os.RemoteException;
++    method public abstract void led_setAllRGBpallette(int) throws android.os.RemoteException;
++    method public abstract void led_setArbitraryRGBpallette(int, int) throws android.os.RemoteException;
++    method public abstract void led_setFlashArbitraryRGB(int) throws android.os.RemoteException;
++    method public abstract void led_setOrderRGBpallette(int, int, int) throws android.os.RemoteException;
++    method public abstract void led_setSingelRGBpallette(int, int) throws android.os.RemoteException;
++    method public abstract void led_set_OFF(int) throws android.os.RemoteException;
++    method public abstract void led_set_ON(int) throws android.os.RemoteException;
++    method public abstract void led_set_brightness(int, int) throws android.os.RemoteException;
++    method public abstract void led_set_colors(int, int) throws android.os.RemoteException;
++  }
++
++  public static abstract class ILedDemoService.Stub extends android.os.Binder implements android.app.ILedDemoService {
++    ctor public ILedDemoService.Stub();
++    method public android.os.IBinder asBinder();
++    method public static android.app.ILedDemoService asInterface(android.os.IBinder);
++    method public boolean onTransact(int, android.os.Parcel, android.os.Parcel, int) throws android.os.RemoteException;
++  }
++
++  public abstract interface ITiAmplifierService implements android.os.IInterface {
++    method public abstract int tiAmplifierGetEQmode() throws android.os.RemoteException;
++    method public abstract int tiAmplifierGetPDNmode() throws android.os.RemoteException;
++    method public abstract void tiAmplifierSetEQmode(int) throws android.os.RemoteException;
++    method public abstract void tiAmplifierSetPDNmode(int) throws android.os.RemoteException;
++  }
++
++  public static abstract class ITiAmplifierService.Stub extends android.os.Binder implements android.app.ITiAmplifierService {
++    ctor public ITiAmplifierService.Stub();
++    method public android.os.IBinder asBinder();
++    method public static android.app.ITiAmplifierService asInterface(android.os.IBinder);
++    method public boolean onTransact(int, android.os.Parcel, android.os.Parcel, int) throws android.os.RemoteException;
++  }
++
+   public class Instrumentation {
+     ctor public Instrumentation();
+     method public void addMonitor(android.app.Instrumentation.ActivityMonitor);
+@@ -4462,6 +4498,20 @@ package android.app {
+     field public android.content.pm.ResolveInfo resolveInfo;
+   }
+ 
++  public class LedDemoServiceManager {
++    ctor public LedDemoServiceManager(android.content.Context, android.app.ILedDemoService);
++    method public int led_getSingelRGBpallette(int);
++    method public int led_get_brightness(int);
++    method public int led_get_colors(int);
++    method public void led_setAllRGBpallette(int);
++    method public void led_setArbitraryRGBpallette(int, int);
++    method public void led_setFlashArbitraryRGB(int);
++    method public void led_setOrderRGBpallette(int, int, int);
++    method public void led_setSingelRGBpallette(int, int);
++    method public void led_set_brightness(int, int);
++    method public void led_set_colors(int, int);
++  }
++
+   public class ListActivity extends android.app.Activity {
+     ctor public ListActivity();
+     method public android.widget.ListAdapter getListAdapter();
+@@ -5122,6 +5172,14 @@ package android.app {
+     method public void startActivities(android.os.Bundle);
+   }
+ 
++  public class TiAmplifierServiceManager {
++    ctor public TiAmplifierServiceManager(android.content.Context, android.app.ITiAmplifierService);
++    method public int tiAmplifierGetEQmode();
++    method public int tiAmplifierGetPDNmode();
++    method public void tiAmplifierSetEQmode(int);
++    method public void tiAmplifierSetPDNmode(int);
++  }
++
+   public class TimePickerDialog extends android.app.AlertDialog implements android.content.DialogInterface.OnClickListener android.widget.TimePicker.OnTimeChangedListener {
+     ctor public TimePickerDialog(android.content.Context, android.app.TimePickerDialog.OnTimeSetListener, int, int, boolean);
+     ctor public TimePickerDialog(android.content.Context, int, android.app.TimePickerDialog.OnTimeSetListener, int, int, boolean);
+@@ -7257,6 +7315,7 @@ package android.content {
+     field public static final java.lang.String KEYGUARD_SERVICE = "keyguard";
+     field public static final java.lang.String LAUNCHER_APPS_SERVICE = "launcherapps";
+     field public static final java.lang.String LAYOUT_INFLATER_SERVICE = "layout_inflater";
++    field public static final java.lang.String LED_SERVICE = "led_demo";
+     field public static final java.lang.String LOCATION_SERVICE = "location";
+     field public static final java.lang.String MEDIA_PROJECTION_SERVICE = "media_projection";
+     field public static final java.lang.String MEDIA_ROUTER_SERVICE = "media_router";
+@@ -7280,6 +7339,7 @@ package android.content {
+     field public static final java.lang.String TELEPHONY_SERVICE = "phone";
+     field public static final java.lang.String TELEPHONY_SUBSCRIPTION_SERVICE = "telephony_subscription_service";
+     field public static final java.lang.String TEXT_SERVICES_MANAGER_SERVICE = "textservices";
++    field public static final java.lang.String TIAMPLIFIER_SERVICE = "tiAmplifier";
+     field public static final java.lang.String TV_INPUT_SERVICE = "tv_input";
+     field public static final java.lang.String UI_MODE_SERVICE = "uimode";
+     field public static final java.lang.String USAGE_STATS_SERVICE = "usagestats";
+@@ -28703,6 +28763,7 @@ package android.telephony {
+     method public boolean isSmsCapable();
+     method public boolean isVoiceCapable();
+     method public void listen(android.telephony.PhoneStateListener, int);
++    method public void notifyCallState(int, java.lang.String);
+     method public java.lang.String sendEnvelopeWithStatus(java.lang.String);
+     method public boolean setLine1NumberForDisplay(java.lang.String, java.lang.String);
+     method public boolean setOperatorBrandOverride(java.lang.String);
+diff --git a/frameworks/base/api/system-current.txt b/frameworks/base/api/system-current.txt
+index e7b5990..304199d 100755
+--- a/frameworks/base/api/system-current.txt
++++ b/frameworks/base/api/system-current.txt
+@@ -4415,6 +4415,42 @@ package android.app {
+     field public static final int TRANSIT_UNSET = -1; // 0xffffffff
+   }
+ 
++  public abstract interface ILedDemoService implements android.os.IInterface {
++    method public abstract int led_getSingelRGBpallette(int) throws android.os.RemoteException;
++    method public abstract int led_get_brightness(int) throws android.os.RemoteException;
++    method public abstract int led_get_colors(int) throws android.os.RemoteException;
++    method public abstract void led_setAllRGBpallette(int) throws android.os.RemoteException;
++    method public abstract void led_setArbitraryRGBpallette(int, int) throws android.os.RemoteException;
++    method public abstract void led_setFlashArbitraryRGB(int) throws android.os.RemoteException;
++    method public abstract void led_setOrderRGBpallette(int, int, int) throws android.os.RemoteException;
++    method public abstract void led_setSingelRGBpallette(int, int) throws android.os.RemoteException;
++    method public abstract void led_set_OFF(int) throws android.os.RemoteException;
++    method public abstract void led_set_ON(int) throws android.os.RemoteException;
++    method public abstract void led_set_brightness(int, int) throws android.os.RemoteException;
++    method public abstract void led_set_colors(int, int) throws android.os.RemoteException;
++  }
++
++  public static abstract class ILedDemoService.Stub extends android.os.Binder implements android.app.ILedDemoService {
++    ctor public ILedDemoService.Stub();
++    method public android.os.IBinder asBinder();
++    method public static android.app.ILedDemoService asInterface(android.os.IBinder);
++    method public boolean onTransact(int, android.os.Parcel, android.os.Parcel, int) throws android.os.RemoteException;
++  }
++
++  public abstract interface ITiAmplifierService implements android.os.IInterface {
++    method public abstract int tiAmplifierGetEQmode() throws android.os.RemoteException;
++    method public abstract int tiAmplifierGetPDNmode() throws android.os.RemoteException;
++    method public abstract void tiAmplifierSetEQmode(int) throws android.os.RemoteException;
++    method public abstract void tiAmplifierSetPDNmode(int) throws android.os.RemoteException;
++  }
++
++  public static abstract class ITiAmplifierService.Stub extends android.os.Binder implements android.app.ITiAmplifierService {
++    ctor public ITiAmplifierService.Stub();
++    method public android.os.IBinder asBinder();
++    method public static android.app.ITiAmplifierService asInterface(android.os.IBinder);
++    method public boolean onTransact(int, android.os.Parcel, android.os.Parcel, int) throws android.os.RemoteException;
++  }
++
+   public class Instrumentation {
+     ctor public Instrumentation();
+     method public void addMonitor(android.app.Instrumentation.ActivityMonitor);
+@@ -4552,6 +4588,20 @@ package android.app {
+     field public android.content.pm.ResolveInfo resolveInfo;
+   }
+ 
++  public class LedDemoServiceManager {
++    ctor public LedDemoServiceManager(android.content.Context, android.app.ILedDemoService);
++    method public int led_getSingelRGBpallette(int);
++    method public int led_get_brightness(int);
++    method public int led_get_colors(int);
++    method public void led_setAllRGBpallette(int);
++    method public void led_setArbitraryRGBpallette(int, int);
++    method public void led_setFlashArbitraryRGB(int);
++    method public void led_setOrderRGBpallette(int, int, int);
++    method public void led_setSingelRGBpallette(int, int);
++    method public void led_set_brightness(int, int);
++    method public void led_set_colors(int, int);
++  }
++
+   public class ListActivity extends android.app.Activity {
+     ctor public ListActivity();
+     method public android.widget.ListAdapter getListAdapter();
+@@ -5212,6 +5262,14 @@ package android.app {
+     method public void startActivities(android.os.Bundle);
+   }
+ 
++  public class TiAmplifierServiceManager {
++    ctor public TiAmplifierServiceManager(android.content.Context, android.app.ITiAmplifierService);
++    method public int tiAmplifierGetEQmode();
++    method public int tiAmplifierGetPDNmode();
++    method public void tiAmplifierSetEQmode(int);
++    method public void tiAmplifierSetPDNmode(int);
++  }
++
+   public class TimePickerDialog extends android.app.AlertDialog implements android.content.DialogInterface.OnClickListener android.widget.TimePicker.OnTimeChangedListener {
+     ctor public TimePickerDialog(android.content.Context, android.app.TimePickerDialog.OnTimeSetListener, int, int, boolean);
+     ctor public TimePickerDialog(android.content.Context, int, android.app.TimePickerDialog.OnTimeSetListener, int, int, boolean);
+@@ -7497,6 +7555,7 @@ package android.content {
+     field public static final java.lang.String KEYGUARD_SERVICE = "keyguard";
+     field public static final java.lang.String LAUNCHER_APPS_SERVICE = "launcherapps";
+     field public static final java.lang.String LAYOUT_INFLATER_SERVICE = "layout_inflater";
++    field public static final java.lang.String LED_SERVICE = "led_demo";
+     field public static final java.lang.String LOCATION_SERVICE = "location";
+     field public static final java.lang.String MEDIA_PROJECTION_SERVICE = "media_projection";
+     field public static final java.lang.String MEDIA_ROUTER_SERVICE = "media_router";
+@@ -7522,6 +7581,7 @@ package android.content {
+     field public static final java.lang.String TELEPHONY_SERVICE = "phone";
+     field public static final java.lang.String TELEPHONY_SUBSCRIPTION_SERVICE = "telephony_subscription_service";
+     field public static final java.lang.String TEXT_SERVICES_MANAGER_SERVICE = "textservices";
++    field public static final java.lang.String TIAMPLIFIER_SERVICE = "tiAmplifier";
+     field public static final java.lang.String TV_INPUT_SERVICE = "tv_input";
+     field public static final java.lang.String UI_MODE_SERVICE = "uimode";
+     field public static final java.lang.String USAGE_STATS_SERVICE = "usagestats";
+@@ -30925,6 +30985,7 @@ package android.telephony {
+     method public boolean isVoiceCapable();
+     method public void listen(android.telephony.PhoneStateListener, int);
+     method public boolean needsOtaServiceProvisioning();
++    method public void notifyCallState(int, java.lang.String);
+     method public java.lang.String sendEnvelopeWithStatus(java.lang.String);
+     method public void setDataEnabled(boolean);
+     method public void setDataEnabled(int, boolean);
+diff --git a/frameworks/base/core/res/res/values/config.xml b/frameworks/base/core/res/res/values/config.xml
+index be22e4e..69efc85 100755
+--- a/frameworks/base/core/res/res/values/config.xml
++++ b/frameworks/base/core/res/res/values/config.xml
+@@ -438,7 +438,7 @@
+     <integer translatable="false" name="config_wifi_framework_network_switch_rx_packet_threshold">20</integer>
+ 
+     <!-- Integer indicating wpa_supplicant scan interval in milliseconds -->
+-    <integer translatable="false" name="config_wifi_supplicant_scan_interval">15000</integer>
++    <integer translatable="false" name="config_wifi_supplicant_scan_interval">5000</integer>
+ 
+     <!-- Integer indicating amount of time failed networks areblacklisted for the purpose
+          of network switching in milliseconds -->
+diff --git a/frameworks/base/media/java/android/media/AudioService.java b/frameworks/base/media/java/android/media/AudioService.java
+index 03fc93d..944d901 100644
+--- a/frameworks/base/media/java/android/media/AudioService.java
++++ b/frameworks/base/media/java/android/media/AudioService.java
+@@ -25,6 +25,8 @@ import android.app.ActivityManager;
+ import android.app.ActivityManagerNative;
+ import android.app.AppOpsManager;
+ import android.app.KeyguardManager;
++import android.app.LedDemoServiceManager;
++import android.app.TiAmplifierServiceManager;
+ import android.bluetooth.BluetoothA2dp;
+ import android.bluetooth.BluetoothAdapter;
+ import android.bluetooth.BluetoothClass;
+@@ -213,6 +215,8 @@ public class AudioService extends IAudioService.Stub {
+     private static final int MSG_SET_A2DP_SINK_CONNECTION_STATE = 102;
+     // end of messages handled under wakelock
+ 
++    private static final int MSG_CLOSE_LED = 200;
++
+     private static final int BTA2DP_DOCK_TIMEOUT_MILLIS = 8000;
+     // Timeout for connection to bluetooth headset service
+     private static final int BT_HEADSET_CNCT_TIMEOUT_MS = 3000;
+@@ -1149,11 +1153,27 @@ public class AudioService extends IAudioService.Stub {
+                     }
+                 }
+             }
++
++            //add by liujc
++            Log.d("lfy", "touchkey--adjustStreamVolume oldIndex:"+oldIndex+", newIndex:"+newIndex+", streamTypeAlias:"+streamTypeAlias+", streamType:"+streamType);
++            //if(streamTypeAlias == AudioSystem.STREAM_MUSIC){
++            
++			
++			if(newIndex > 150)
++			{
++			 TiAmplifierServiceManager  TiAmplifier = (TiAmplifierServiceManager) mContext.getSystemService(Context.TIAMPLIFIER_SERVICE);
++             int temp = TiAmplifier.tiAmplifierGetEQmode();
++			 Log.d("lfy", "touchkey--TiAmplifier.tiAmplifierGetEQmode() = :"+oldIndex);
++			 TiAmplifier.tiAmplifierSetEQmode(0x05);
++			}
++            // }
++            //end by liujc
+         }
+         int index = mStreamStates[streamType].getIndex(device);
+         sendVolumeUpdate(streamType, oldIndex, index, flags);
+     }
+ 
++
+     private void setSystemAudioVolume(int oldVolume, int newVolume, int maxVolume, int flags) {
+         if (mHdmiManager == null
+                 || mHdmiTvClient == null
+@@ -1532,6 +1552,7 @@ public class AudioService extends IAudioService.Stub {
+         if (mUseFixedVolume) {
+             return;
+         }
++        Log.d(TAG, "touchkey--setStreamMute");
+         if (streamType == AudioManager.USE_DEFAULT_STREAM_TYPE) {
+             streamType = getActiveStreamType(streamType);
+         }
+@@ -1680,6 +1701,7 @@ public class AudioService extends IAudioService.Stub {
+ 
+     /** @see AudioManager#setMasterMute(boolean, int) */
+     public void setMasterMute(boolean state, int flags, String callingPackage, IBinder cb) {
++        Log.d(TAG, "touchkey--setMasterMute");
+         setMasterMuteInternal(state, flags, callingPackage, cb, Binder.getCallingUid());
+     }
+ 
+@@ -4445,6 +4467,11 @@ public class AudioService extends IAudioService.Stub {
+                                                  msg.arg1,
+                                                  msg.arg2);
+                     break;
++                case MSG_CLOSE_LED:
++                    Log.d("--lfy--", "begin close led");
++                    //LedDemoServiceManager ledDemoServiceManager = (LedDemoServiceManager) mContext.getSystemService(Context.LED_SERVICE);
++                    //ledDemoServiceManager.led_setAllRBGpallette(0xff000000);
++                    break;
+             }
+         }
+     }
+diff --git a/hardware/libhardware_legacy/wifi/wifi.c b/hardware/libhardware_legacy/wifi/wifi.c
+index 87be8d8..5e0f23e 100644
+--- a/hardware/libhardware_legacy/wifi/wifi.c
++++ b/hardware/libhardware_legacy/wifi/wifi.c
+@@ -112,6 +112,8 @@ static const char SUPP_PROP_NAME[]      = "init.svc.wpa_supplicant";
+ static const char P2P_SUPPLICANT_NAME[] = "p2p_supplicant";
+ static const char P2P_PROP_NAME[]       = "init.svc.p2p_supplicant";
+ static const char SUPP_CONFIG_TEMPLATE[]= "/system/etc/wifi/wpa_supplicant.conf";
++static const char SUPP_CONFIG_LFY[]     =  "/system/etc/wifi/lfy_supplicant.conf";
++static const char LFY_CONFIG_FILE[]     = "/data/misc/wifi/lfy_supplicant.conf";
+ static const char SUPP_CONFIG_FILE[]    = "/data/misc/wifi/wpa_supplicant.conf";
+ static const char P2P_CONFIG_FILE[]     = "/data/misc/wifi/p2p_supplicant.conf";
+ static const char CONTROL_IFACE_PATH[]  = "/data/misc/wifi/sockets";
+@@ -132,6 +134,8 @@ static char supplicant_name[PROPERTY_VALUE_MAX];
+ /* Is either SUPP_PROP_NAME or P2P_PROP_NAME */
+ static char supplicant_prop_name[PROPERTY_KEY_MAX];
+ 
++int ensure_lfy_file_exists(const char *config_file);
++
+ static int insmod(const char *filename, const char *args)
+ {
+     void *module;
+@@ -343,7 +347,8 @@ int ensure_config_file_exists(const char *config_file)
+     struct stat sb;
+     int nread;
+     int ret;
+-
++	
++	//ALOGE("lfy-wpa-ensure_config_file_exists ");
+     ret = access(config_file, R_OK|W_OK);
+     if ((ret == 0) || (errno == EACCES)) {
+         if ((ret != 0) &&
+@@ -351,12 +356,13 @@ int ensure_config_file_exists(const char *config_file)
+             ALOGE("Cannot set RW to \"%s\": %s", config_file, strerror(errno));
+             return -1;
+         }
++		ALOGE("lfy-wpa-ensure_config_file_exists old config ");
+         return 0;
+     } else if (errno != ENOENT) {
+         ALOGE("Cannot access \"%s\": %s", config_file, strerror(errno));
+         return -1;
+     }
+-
++	//ALOGE("lfy-wpa-ensure_config_file_exists new config ");
+     srcfd = TEMP_FAILURE_RETRY(open(SUPP_CONFIG_TEMPLATE, O_RDONLY));
+     if (srcfd < 0) {
+         ALOGE("Cannot open \"%s\": %s", SUPP_CONFIG_TEMPLATE, strerror(errno));
+@@ -400,11 +406,97 @@ int ensure_config_file_exists(const char *config_file)
+     }
+     return 0;
+ }
+-
++int ensure_lfy_file_exists(const char *lfy_file)
++{
++    char buf[2048];
++    int srcfd, destfd;
++    struct stat sb;
++    int nread;
++    int ret;
++    ret = access(lfy_file, R_OK|W_OK);
++	if ((ret == 0) || (errno == EACCES)) {
++		//ALOGE("lfy-wpa-lfy_wpa_supplicant.con old config ");
++	    srcfd = TEMP_FAILURE_RETRY(open(lfy_file, O_RDONLY));
++		if (srcfd < 0) {
++			ALOGE("-lfy-Cannot open \"%s\": %s", lfy_file, strerror(errno));
++			return -1;
++		}
++
++		destfd = TEMP_FAILURE_RETRY(open(SUPP_CONFIG_FILE, O_CREAT|O_RDWR, 0660));
++		if (destfd < 0) {
++			close(srcfd);
++			ALOGE("-lfy-Cannot create \"%s\": %s", SUPP_CONFIG_FILE, strerror(errno));
++			return -1;
++		}
++
++		while ((nread = TEMP_FAILURE_RETRY(read(srcfd, buf, sizeof(buf)))) != 0) {
++			if (nread < 0) {
++				ALOGE("-lfy-Error reading \"%s\": %s", SUPP_CONFIG_FILE, strerror(errno));
++				close(srcfd);
++				close(destfd);
++				unlink(lfy_file);
++				return -1;
++			}
++			TEMP_FAILURE_RETRY(write(destfd, buf, nread));
++		}
++
++		close(destfd);
++		close(srcfd);
++		return 0;
++    }
++	else
++	{
++		//ALOGE("lfy-wpa-lfy_wpa_supplicant.con new config ");
++	    srcfd = TEMP_FAILURE_RETRY(open(SUPP_CONFIG_FILE, O_RDONLY));
++		if (srcfd < 0) {
++			ALOGE("-lfy-Cannot open \"%s\": %s", SUPP_CONFIG_FILE, strerror(errno));
++			return -1;
++		}
++
++		destfd = TEMP_FAILURE_RETRY(open(lfy_file, O_CREAT|O_RDWR, 0660));
++		if (destfd < 0) {
++			close(srcfd);
++			ALOGE("-lfy-Cannot create \"%s\": %s", lfy_file, strerror(errno));
++			return -1;
++		}
++
++		while ((nread = TEMP_FAILURE_RETRY(read(srcfd, buf, sizeof(buf)))) != 0) {
++			if (nread < 0) {
++				ALOGE("-lfy-Error reading \"%s\": %s", lfy_file, strerror(errno));
++				close(srcfd);
++				close(destfd);
++				unlink(lfy_file);
++				return -1;
++			}
++			TEMP_FAILURE_RETRY(write(destfd, buf, nread));
++		}
++
++		close(destfd);
++		close(srcfd);
++
++		/* chmod is needed because open() didn't set permisions properly */
++		if (chmod(lfy_file, 0777) < 0) {
++			ALOGE("-lfy-Error changing permissions of %s to 0660: %s",
++				 SUPP_CONFIG_FILE, strerror(errno));
++			unlink(SUPP_CONFIG_FILE);
++			return -1;
++		}
++
++		if (chown(lfy_file, AID_SYSTEM, AID_WIFI) < 0) {
++			ALOGE("-lfy-Error changing group ownership of %s to %d: %s",
++				 lfy_file, AID_WIFI, strerror(errno));
++			unlink(lfy_file);
++			return -1;
++		}		
++	}
++ 
++    return 1;
++}
+ int wifi_start_supplicant(int p2p_supported)
+ {
+     char supp_status[PROPERTY_VALUE_MAX] = {'\0'};
+     int count = 200; /* wait at most 20 seconds for completion */
++    int ret = -1;
+ #ifdef HAVE_LIBC_SYSTEM_PROPERTIES
+     const prop_info *pi;
+     unsigned serial = 0, i;
+@@ -430,13 +522,27 @@ int wifi_start_supplicant(int p2p_supported)
+             && strcmp(supp_status, "running") == 0) {
+         return 0;
+     }
++    /* Before starting the daemon, make sure its config file exists */
++	
++	/*
+ 
++    ret = ensure_lfy_file_exists(LFY_CONFIG_FILE);
++    if (ret < 0) {
++        ALOGE("Wi-Fi will not be enabled");
++        //return -1;
++    }
++	*/
++	
+     /* Before starting the daemon, make sure its config file exists */
+     if (ensure_config_file_exists(SUPP_CONFIG_FILE) < 0) {
+         ALOGE("Wi-Fi will not be enabled");
+         return -1;
+     }
+-
++    ret = ensure_lfy_file_exists(LFY_CONFIG_FILE);
++    if (ret < 0) {
++        ALOGE("Wi-Fi will not be enabled");
++        return -1;
++    }
+     if (ensure_entropy_file_exists() < 0) {
+         ALOGE("Wi-Fi entropy file was not created");
+     }
+@@ -718,7 +824,6 @@ int wifi_wait_on_socket(char *buf, size_t buflen)
+         /* let the event go as is! */
+         ALOGW("supplicant generated event without interface and without message level - %s\n", buf);
+     }
+-
+     return nread;
+ }
+ 
+@@ -768,6 +873,31 @@ void wifi_close_supplicant_connection()
+ 
+ int wifi_command(const char *command, char *reply, size_t *reply_len)
+ {
++	int ret = -1;
++    //ALOGE("-lfy-wifi_command (%s)",command);
++	
++	
++	/*
++	if(strstr(command,"ENABLE_NETWORK") != NULL)
++	{
++		ALOGE("-lfy- send ENABLE_NETWORK to wpa_supplicant");
++		system("rm /data/misc/wifi/lfy_supplicant.conf");
++	    ensure_lfy_file_exists(LFY_CONFIG_FILE);
++	}
++	if(strstr(command,"RECONNECT") != NULL)
++	{
++	   ALOGE("-lfy- send RECONNECT to wpa_supplicant");
++	   //system("rm /data/misc/wifi/lfy_supplicant.conf");
++	   ensure_lfy_file_exists(LFY_CONFIG_FILE);
++	}
++	if(strstr(command,"SCAN") != NULL)
++	{
++	   //ALOGE("-lfy- send SCAN to wpa_supplicant");
++       //system("rm /data/misc/wifi/lfy_supplicant.conf");
++	   //system("cp /data/misc/wifi/wpa_supplicant.conf  /data/misc/wifi/lfy_supplicant.conf");
++
++	}
++	*/
+     return wifi_send_command(command, reply, reply_len);
+ }
+ 
+diff --git a/kernel/cht/drivers/misc/tas5711/tas5711.c b/kernel/cht/drivers/misc/tas5711/tas5711.c
+index a6b405e..0d8a198 100644
+--- a/kernel/cht/drivers/misc/tas5711/tas5711.c
++++ b/kernel/cht/drivers/misc/tas5711/tas5711.c
+@@ -26,6 +26,7 @@
+ #include <sound/soc.h>
+ #include <sound/tlv.h>
+ #include <linux/gpio.h>
++#include <linux/cdev.h>
+ #include "tas5711.h"
+ 
+ 
+@@ -51,9 +52,8 @@ struct i2c_client  * client_5711;
+ static unsigned int MasterVol = 11;
+ static unsigned int PDNMode =1;
+ static unsigned int EQMode =1;
++static struct mutex lock;	/* lock for user-space interface */
+ 
+-int config_gpio_ctrl0reg(struct gpio_chip *chip,u32 value, unsigned offset);
+-int config_gpio_ctrl1reg(struct gpio_chip *chip,u32 value, unsigned offset);
+ static int tas5711_register_size(struct device *dev, unsigned int reg)
+ {
+ 	if(reg < 0x1f)
+@@ -250,22 +250,24 @@ void  tas5711_SetEQMode(unsigned int Index)
+ 		printk("[lfy][tas5711] Same mode for EQMode =%d \n",EQMode);
+ 		return ;
+ 	}
+-	EQMode = value;
+-	if(EQMode == 0)
++       printk("[lfy][tas5711]  mode for EQMode =%d \n",value);
++	if(value == 0)
+ 	{
+ 		//tas5711_EnterSD(client_5711);
+ 		//tas5711_EQ_def(client_5711);
+ 		//tas5711_ExitSD(client_5711); 
++		EQMode = value;
+ 	}
+-	else if(EQMode ==1)
++	else if(value ==1)
+ 	{
+ 		//tas5711_EnterSD(client_5711);
+ 		//tas5711_EQ(client_5711);
+ 		//tas5711_ExitSD(client_5711);
++		EQMode = value;
+ 	}
+ 	else
+ 	{
+-		printk("[lfy][tas5711] No this Mode for %d\n",EQMode);
++		printk("[lfy][tas5711] No this Mode for %d\n",value);
+ 		//EQMode = 1;
+ 	}
+ }
+@@ -289,12 +291,14 @@ void  tas5711_SetMasterVol(unsigned int Index)
+ 		printk("[lfy][tas5711] input Vol level errot\n");
+ 		return ;
+ 	}
++	//mutex_lock(&lock);
+ 	//printk("[lfy][tas5711_SetMasterVol] private_data->client.address = %x\n",client_5711->addr);
+        MasterVol = value;
+ 	if(tas5711_regOnebyte_write(client_5711,TI_TAS5711_MASTER_VOL,Vol_Map[MasterVol])<0)
+ 	{
+ 		printk("[lfy][tas5711]write  error reg =%x,data =%x\n",TI_TAS5711_MASTER_VOL,Vol_Map[MasterVol]);
+ 	}
++	//mutex_unlock(&lock);
+ }
+ 
+ static int  tas5711_REGInit(struct i2c_client *client)
+@@ -441,8 +445,10 @@ static int  tas5711_REGInit(struct i2c_client *client)
+ static ssize_t MasterVol_show(struct device *dev,struct device_attribute *attr, char *buf)
+ {
+ 	int ret = 0;
++	//mutex_lock(&lock);
+ 	ret = sprintf(buf, "TAS5711 MasterVol = %d\n",
+ 			MasterVol);
++	//mutex_unlock(&lock);
+ 	return ret;
+ }
+ 
+@@ -462,11 +468,8 @@ static ssize_t PDNMode_show(struct device *dev, struct device_attribute *attr, c
+ 	int ret = 0;
+ 	
+ 	printk("[lfy][tas5711] gpio value = %d \n",gpio_get_value(365));
+-        
+-	ret = sprintf(buf, "TAS5711 PDNMode = %d\n",
+-			PDNMode);
+ 
+-	return ret;
++       return scnprintf(buf, PAGE_SIZE, "%d\n",PDNMode);;
+ }
+ 
+ static ssize_t PDNMode_store(struct device *dev,  struct device_attribute *attr,const char *buf, size_t count)
+@@ -480,7 +483,7 @@ static ssize_t PDNMode_store(struct device *dev,  struct device_attribute *attr,
+        	{
+ 	     return ;
+        	}
+-
++        mutex_lock(&lock);
+ 	  PDNMode = gpio_get_value(365);
+ 	   
+ 	 if(PDNMode==setPDNMode)
+@@ -498,14 +501,14 @@ static ssize_t PDNMode_store(struct device *dev,  struct device_attribute *attr,
+ 	       PDNMode = 1;
+ 	  	gpio_set_value(365,1);
+ 	 }
++	 mutex_unlock(&lock);
+ 	return count;
+ }
+ static ssize_t EQMode_show(struct device *dev,struct device_attribute *attr, char *buf)
+ {
+ 	int ret = 0;
+-	ret = sprintf(buf, "TAS5711 EQMode = %d\n",
+-			EQMode);
+-	return ret;
++	printk("[lfy][tas5711] EQMode_show = %d \n",EQMode);
++	return scnprintf(buf, PAGE_SIZE, "%d\n",EQMode);
+ }
+ static ssize_t EQMode_store(struct device *dev,struct device_attribute *attr,const char *buf, size_t count)
+ {
+@@ -513,7 +516,9 @@ static ssize_t EQMode_store(struct device *dev,struct device_attribute *attr,con
+ 	int setEQMode;
+       	setEQMode = -1;
+ 	sscanf(buf, "%d", &setEQMode);
++	mutex_lock(&lock);
+        tas5711_SetEQMode(setEQMode);
++	mutex_unlock(&lock);
+ 	return count;
+ }
+ static struct device_attribute dev_attr_tas5711_MasterVol=
+@@ -535,6 +540,133 @@ static struct attribute_group tas5711_attribute_group = {
+ .attrs = tas5711_sysfs_attrs,
+ 	
+ };
++
++
++int  tas5711_open(struct inode *inode, struct file *filp)
++{
++	int rc = 0;
++	
++      printk("<---[lfy][tas5711]   tas5711_open  --->\n");
++
++	return rc;
++}
++int  tas5711_release(struct inode *inode, struct file *filp)
++{
++ 	 return 0;
++}
++
++int  tas5711_ioctl( struct file *filp, unsigned int cmd, unsigned long arg)
++{
++
++    int err = 0;
++    int ret = 0;
++    int ioarg = 0;
++
++   printk("<---[lfy][tas5711]  tas5711_ioctl   cmd =  %x --->\n",cmd);
++   printk("<---[lfy][tas5711]  tas5711_ioctl   TI_TAS5711_IOCGET_PDNMODE  =  %x --->\n",TI_TAS5711_IOCGET_PDNMODE);
++     printk("<---[lfy][tas5711]  _IOC_TYPE     =  %d --->\n",_IOC_TYPE(cmd));
++    if (_IOC_TYPE(cmd) != TI_TAS5711_IOC_MAGIC) 
++        return -EINVAL;
++    if (_IOC_NR(cmd) > TI_TAS5711_IOC_MAXNR) 
++        return -EINVAL;
++    if (_IOC_DIR(cmd) & _IOC_READ)
++        err = !access_ok(VERIFY_WRITE, (void *)arg, _IOC_SIZE(cmd));
++    else if (_IOC_DIR(cmd) & _IOC_WRITE)
++        err = !access_ok(VERIFY_READ, (void *)arg, _IOC_SIZE(cmd));
++    if (err) 
++        return -EFAULT;
++	
++    switch(cmd)
++    {
++       
++      case TI_TAS5711_IOCGET_PDNMODE: 
++		//mutex_lock(&lock);
++		ioarg = PDNMode;
++		// mutex_lock(&lock);
++		ret = __put_user(ioarg, (int *)arg);
++		printk("<---[lfy][tas5711]  TI_TAS5711_IOCGET_PDNMODE   =  %d --->\n",ioarg);
++
++		break;
++      
++      case TI_TAS5711_IOCSET_PDNMODE: 
++		ret = __get_user(ioarg, (int *)arg);
++		printk("<--- l[lfy][tas5711]   TI_TAS5711_IOCSET_PDNMODE   =  %d --->\n",ioarg);
++		if(ioarg == 0 || ioarg == 1)
++		{
++		        //mutex_lock(&lock);
++			  PDNMode = gpio_get_value(365);
++			   
++			 if(PDNMode==ioarg)
++			 {
++			 	 printk("[lfy][tas5711] the same PDNmdoe =%d \n",PDNMode);
++				 return ;
++			 }
++			 if(ioarg == 0)
++			 {
++			  	PDNMode = ioarg;
++			  	gpio_set_value(365,0);
++			 }
++			 else 
++			 {
++			       PDNMode = 1;
++			  	gpio_set_value(365,1);
++			 }
++			// mutex_unlock(&lock);
++		}
++		else
++		{
++			printk("<--- [lfy][tas5711]   TI_TAS5711_IOCSET_PDNMODE   ERROR ARG --->\n");
++
++		}
++        	break;
++
++      case TI_TAS5711_IOCGET_EQMODE: 
++		ret = __put_user(ioarg, (int *)arg);
++		if(ioarg)
++
++		printk("<--- l[lfy][tas5711]   TI_TAS5711_IOCGET_EQMODE   =  %d --->\n",ioarg);
++
++       	 break;
++      
++      case TI_TAS5711_IOCSET_EQMODE: 
++	       ret = __get_user(ioarg, (int *)arg);
++		//mutex_lock(&lock);
++		tas5711_SetEQMode(ioarg);
++		//mutex_unlock(&lock);
++	       printk("<--- l[lfy][tas5711]l  TI_TAS5711_IOCSET_EQMODE   =  %d --->\n",ioarg);
++	        break;
++			
++      default:  
++        return -EINVAL;
++    }
++    return ret;
++
++}
++static const struct file_operations  tas5711_fops =
++{
++  .owner = THIS_MODULE,
++  .open = tas5711_open,
++  .release =  tas5711_release,
++  .unlocked_ioctl =  tas5711_ioctl
++ // .compat_ioctl = tas5711_ioctl
++};
++static struct miscdevice tas5711_misc = {
++	.minor = MISC_DYNAMIC_MINOR,
++	.name = "tas5711",
++	.fops = &tas5711_fops
++};
++static int  tas5711_setupmisc(void)
++{
++	int err = 0;	
++
++	printk("----lfy-----tas5711_setupcdev   \n");	
++	err = misc_register(&tas5711_misc);
++	if (err < 0) {
++		printk("----lfy-----tas5711_setupcdev   \n");	
++	}
++	return err;
++
++}
+ static int  tas5711_probe(struct i2c_client *client,const struct i2c_device_id *id)
+ {
+ 
+@@ -562,6 +694,7 @@ static int  tas5711_probe(struct i2c_client *client,const struct i2c_device_id *
+ 	if (!client_5711)
+ 		return -ENOMEM;
+ 	
++	mutex_init(&lock);
+ 	client_5711 = client;
+ 	i2c_set_clientdata(client,priv);
+ 	//init gpio
+@@ -606,11 +739,14 @@ static int  tas5711_probe(struct i2c_client *client,const struct i2c_device_id *
+ 	}
+ 	msleep(400);
+ 	//regester devsys 
++
++	tas5711_setupmisc();
+        ret =  sysfs_create_group(&client->dev.kobj,&tas5711_attribute_group);
+ 	if (ret) {
+ 		pr_err("[lfy][tas5711]%s: could not create sysfs group\n", __func__);
+ 		return -1;
+ 	}
++	
+       printk("[lfy][tas5711]probe  is over \n");
+ 	return 0;
+ }
+@@ -679,11 +815,11 @@ static int __init tas5711_init(void)
+       printk(KERN_ERR "[lfy][tas5711]tas5711_init() \n");
+ 	  
+ 	tas5711_create_i2c_device(); 
+-
+ 	return i2c_add_driver(&tas5711_driver);
+ }
+ static void __exit tas5711_exit(void)
+ {
++	misc_deregister(&tas5711_misc);
+ 	i2c_del_driver(&tas5711_driver);
+ }
+ late_initcall(tas5711_init);
+diff --git a/kernel/cht/drivers/misc/tas5711/tas5711.h b/kernel/cht/drivers/misc/tas5711/tas5711.h
+index 9f370fc..d000650 100644
+--- a/kernel/cht/drivers/misc/tas5711/tas5711.h
++++ b/kernel/cht/drivers/misc/tas5711/tas5711.h
+@@ -109,7 +109,15 @@
+ #define TI_TAS5711_PDN_GPIO                                       365
+ #define TI_TAS5711_RST_GPIO                                       343
+ #define TI_TAS5711_BT_ENABLE_GPIO                            366
+-
++/////////////////////////////////////////////////////////////
++#define  TI_TAS5711_IOC_MAGIC    					11
++#define  TI_TAS5711_IOCGET_PDNMODE				_IOR(TI_TAS5711_IOC_MAGIC, 0, int )
++#define  TI_TAS5711_IOCSET_PDNMODE				_IOW(TI_TAS5711_IOC_MAGIC, 1, int )
++#define  TI_TAS5711_IOCGET_EQMODE			 		_IOR(TI_TAS5711_IOC_MAGIC, 2, int )
++#define  TI_TAS5711_IOCSET_EQMODE					_IOW(TI_TAS5711_IOC_MAGIC, 3, int )
++#define  TI_TAS5711_IOC_MAXNR						4
++#define  TI_TAS5711_DEVICES_NODE_NAME  	 		"tas5711"
++////////////////////////////////////////////////////////////
+ unsigned char Vol_Map[21] = {0xff,0x8e,0x7e,0x6e,0x66,0x5e,0x56,0x4e,0x46,0x3e,0x36,0x2e,0x26,0x1e,0x16,0x14,0x13,0x10,0x0e,0x0d,0x0c};
+ 
+ unsigned char Input_MUX[4]={0x00,0x89,0x77,0x72}; 
+@@ -151,27 +159,27 @@ unsigned char CH1_INPUT_MIX[16]  ={0x00,0x80,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ unsigned char CH2_INPUT_MIX[16]  ={0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x00,0x00,0x00};
+ unsigned char CH3_INPUT_MIX[12]  ={0x00,0x80,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+ //0x29-0x2f
+-unsigned char CH1_BQ0[20] ={00,0x7E,0x43,0xB3,0x0F,0x81,0xBC,0x4D,0x00,0x00,0x00,0x00,0x00,0x7C,0x87,0x66,0x00,0x00,0x00,0x00};//0
+-unsigned char CH1_BQ1[20] ={00,0x80,0x20,0x2C,0x0F,0x01,0x58,0xF0,0x00,0x7E,0x8A,0x77,0x00,0xFE,0xA7,0x10,0x0F,0x81,0x55,0x5D};// 1
+-unsigned char CH1_BQ2[20] ={00,0x80,0x9D,0x12,0x0F,0x01,0x64,0xE8,0x00,0x7D,0xFF,0x6B,0x00,0xFE,0x9B,0x18,0x0F,0x81,0x63,0x83};// 2
+-unsigned char CH1_BQ3[20] ={00,0x80,0x00,0x00,0x0F,0x0A,0x6F,0xF6,0x00,0x76,0x52,0x6D,0x00,0xF5,0x90,0x0A,0x0F,0x89,0xAD,0x93};// 3
+-unsigned char CH1_BQ4[20] ={00,0x7F,0xE3,0x71,0x0F,0x02,0x13,0xE8,0x00,0x7E,0x0F,0x64,0x00,0xFD,0xEC,0x18,0x0F,0x82,0x0D,0x2A};// 4
+-unsigned char CH1_BQ5[20] ={00,0x80,0x23,0x04,0x0F,0x02,0x48,0x25,0x00,0x7D,0x9E,0xFA,0x00,0xFD,0xB7,0xDB,0x0F,0x82,0x3E,0x01};// 5
+-unsigned char CH1_BQ6[20] ={00,0x83,0x3F,0x84,0x0F,0x22,0x09,0x02,0x00,0x6D,0x01,0x3F,0x00,0xDD,0xF6,0xFE,0x0F,0x8F,0xBF,0x3D};// 6
++unsigned char CH1_BQ0[20] ={0x00,0x7E,0x6C,0x93,0x0F,0x03,0x26,0xD9,0x00,0x7E,0x6C,0x93,0x00,0xFC,0xD5,0xCC,0x0F,0x83,0x23,0x7E};//0
++unsigned char CH1_BQ1[20] ={0x00,0x80,0x20,0x2C,0x0F,0x01,0x58,0xF0,0x00,0x7E,0x8A,0x77,0x00,0xFE,0xA7,0x10,0x0F,0x81,0x55,0x5D};// 1
++unsigned char CH1_BQ2[20] ={0x00,0x80,0x9D,0x12,0x0F,0x01,0x64,0xE8,0x00,0x7D,0xFF,0x6B,0x00,0xFE,0x9B,0x18,0x0F,0x81,0x63,0x83};// 2
++unsigned char CH1_BQ3[20] ={0x00,0x80,0x3D,0x8C,0x0F,0x08,0xA5,0x4A,0x00,0x77,0xA5,0x08,0x00,0xF7,0x5A,0xB6,0x0F,0x88,0x1D,0x6C};// 3
++unsigned char CH1_BQ4[20] ={0x00,0x7F,0xD3,0xE8,0x0F,0x02,0x32,0xC1,0x00,0x7E,0x00,0x13,0x00,0xFD,0xCD,0x3F,0x0F,0x82,0x2C,0x05};// 4
++unsigned char CH1_BQ5[20] ={0x00,0x80,0x23,0x04,0x0F,0x02,0x48,0x25,0x00,0x7D,0x9E,0xFA,0x00,0xFD,0xB7,0xDB,0x0F,0x82,0x3E,0x01};// 5
++unsigned char CH1_BQ6[20] ={0x00,0x83,0x3F,0x84,0x0F,0x22,0x09,0x02,0x00,0x6D,0x01,0x3F,0x00,0xDD,0xF6,0xFE,0x0F,0x8F,0xBF,0x3D};// 6
+ 	//0x58,0x59
+-unsigned char CH1_BQ7[20] ={00,0x8F,0xC1,0xD3,0x0F,0xCC,0x9C,0x31,0x0F,0xF6,0x87,0xF7,0x00,0x33,0x63,0xCF,0x0F,0xF9,0xB6,0x37};// 7
+-unsigned char CH1_BQ8[20] ={00,0x91,0x6C,0xBA,0x00,0x8A,0xE3,0x5A,0x00,0x32,0xFE,0x21,0x0F,0x75,0x1C,0xA6,0x0F,0xBB,0x95,0x24};// 8
++unsigned char CH1_BQ7[20] ={0x00,0x8F,0xC1,0xD3,0x0F,0xCC,0x9C,0x31,0x0F,0xF6,0x87,0xF7,0x00,0x33,0x63,0xCF,0x0F,0xF9,0xB6,0x37};// 7
++unsigned char CH1_BQ8[20] ={0x00,0x91,0x6C,0xBA,0x00,0x8A,0xE3,0x5A,0x00,0x32,0xFE,0x21,0x0F,0x75,0x1C,0xA6,0x0F,0xBB,0x95,0x24};// 8
+ 	//0x30-0x36
+-unsigned char CH2_BQ0[20]= {00,0x7E,0x43,0xB3,0x0F,0x81,0xBC,0x4D,0x00,0x00,0x00,0x00,0x00,0x7C,0x87,0x66,0x00,0x00,0x00,0x00};// 0
+-unsigned char CH2_BQ1[20]= {00,0x80,0x20,0x2C,0x0F,0x01,0x58,0xF0,0x00,0x7E,0x8A,0x77,0x00,0xFE,0xA7,0x10,0x0F,0x81,0x55,0x5D};// 1
+-unsigned char CH2_BQ2[20]= {00,0x80,0x9D,0x12,0x0F,0x01,0x64,0xE8,0x00,0x7D,0xFF,0x6B,0x00,0xFE,0x9B,0x18,0x0F,0x81,0x63,0x83};// 2
+-unsigned char CH2_BQ3[20]= {00,0x80,0x00,0x00,0x0F,0x0A,0x6F,0xF6,0x00,0x76,0x52,0x6D,0x00,0xF5,0x90,0x0A,0x0F,0x89,0xAD,0x93};// 3
+-unsigned char CH2_BQ4[20]= {00,0x7F,0xE3,0x71,0x0F,0x02,0x13,0xE8,0x00,0x7E,0x0F,0x64,0x00,0xFD,0xEC,0x18,0x0F,0x82,0x0D,0x2A};// 4
+-unsigned char CH2_BQ5[20]= {00,0x80,0x23,0x04,0x0F,0x02,0x48,0x25,0x00,0x7D,0x9E,0xFA,0x00,0xFD,0xB7,0xDB,0x0F,0x82,0x3E,0x01};// 5 
+-unsigned char CH2_BQ6[20]= {00,0x83,0x3F,0x84,0x0F,0x22,0x09,0x02,0x00,0x6D,0x01,0x3F,0x00,0xDD,0xF6,0xFE,0x0F,0x8F,0xBF,0x3D};// 6
++unsigned char CH2_BQ0[20]= {0x00,0x7E,0x6C,0x93,0x0F,0x03,0x26,0xD9,0x00,0x7E,0x6C,0x93,0x00,0xFC,0xD5,0xCC,0x0F,0x83,0x23,0x7E};// 0
++unsigned char CH2_BQ1[20]= {0x00,0x80,0x20,0x2C,0x0F,0x01,0x58,0xF0,0x00,0x7E,0x8A,0x77,0x00,0xFE,0xA7,0x10,0x0F,0x81,0x55,0x5D};// 1
++unsigned char CH2_BQ2[20]= {0x00,0x80,0x9D,0x12,0x0F,0x01,0x64,0xE8,0x00,0x7D,0xFF,0x6B,0x00,0xFE,0x9B,0x18,0x0F,0x81,0x63,0x83};// 2
++unsigned char CH2_BQ3[20]= {0x00,0x80,0x3D,0x8C,0x0F,0x08,0xA5,0x4A,0x00,0x77,0xA5,0x08,0x00,0xF7,0x5A,0xB6,0x0F,0x88,0x1D,0x6C};// 3
++unsigned char CH2_BQ4[20]= {0x00,0x7F,0xD3,0xE8,0x0F,0x02,0x32,0xC1,0x00,0x7E,0x00,0x13,0x00,0xFD,0xCD,0x3F,0x0F,0x82,0x2C,0x05};// 4
++unsigned char CH2_BQ5[20]= {0x00,0x80,0x23,0x04,0x0F,0x02,0x48,0x25,0x00,0x7D,0x9E,0xFA,0x00,0xFD,0xB7,0xDB,0x0F,0x82,0x3E,0x01};// 5 
++unsigned char CH2_BQ6[20]= {0x00,0x83,0x3F,0x84,0x0F,0x22,0x09,0x02,0x00,0x6D,0x01,0x3F,0x00,0xDD,0xF6,0xFE,0x0F,0x8F,0xBF,0x3D};// 6
+ 	//0x5c,0x5d
+-unsigned char CH2_BQ7[20]={00,0x8F,0xC1,0xD3,0x0F,0xCC,0x9C,0x31,0x0F,0xF6,0x87,0xF7,0x00,0x33,0x63,0xCF,0x0F,0xF9,0xB6,0x37};// 7
+-unsigned char CH2_BQ8[20]={00,0x91,0x6C,0xBA,0x00,0x8A,0xE3,0x5A,0x00,0x32,0xFE,0x21,0x0F,0x75,0x1C,0xA6,0x0F,0xBB,0x95,0x24};// 8
++unsigned char CH2_BQ7[20]={0x00,0x8F,0xC1,0xD3,0x0F,0xCC,0x9C,0x31,0x0F,0xF6,0x87,0xF7,0x00,0x33,0x63,0xCF,0x0F,0xF9,0xB6,0x37};// 7
++unsigned char CH2_BQ8[20]={0x00,0x91,0x6C,0xBA,0x00,0x8A,0xE3,0x5A,0x00,0x32,0xFE,0x21,0x0F,0x75,0x1C,0xA6,0x0F,0xBB,0x95,0x24};// 8
+ 
+ //unsigned char OnebyteReg[13] 		={0x06,0x07,0x08,0x09,0x0a,0x0e,0x10,0x11,0x12,0x13,0x14,0x19,0x1c};
+ //unsigned char OnebyteRegData[13] 		={0x00,0x2e,0x2e,0x2e,0x2e,0xd1,0x02,0xac,0x54,0xac,0x54,0x30,0x02};
+@@ -187,6 +195,6 @@ unsigned char CH2_BQ8[20]={00,0x91,0x6C,0xBA,0x00,0x8A,0xE3,0x5A,0x00,0x32,0xFE,
+ 	0x40 = -8db
+ */
+ unsigned char OnebyteReg[13] 		={0x06,0x07,0x08,0x09,0x0a,0x0e,0x10,0x11,0x12,0x13,0x14,0x19,0x1c};
+-unsigned char OnebyteRegData[13] 	={0x00,0x34,0x40,0x40,0x40,0x91,0x02,0xb8,0x60,0xa0,0x48,0x3a,0x02};
++unsigned char OnebyteRegData[13] 	={0x00,0x30,0x40,0x40,0x40,0x91,0x02,0xb8,0x60,0xa0,0x48,0x3a,0x02};
+ 
+ #endif /* _TAS571X_H */

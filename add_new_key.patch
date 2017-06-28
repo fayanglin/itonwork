@@ -1,0 +1,95 @@
+diff --git a/frameworks/base/core/java/android/view/KeyEvent.java b/frameworks/base/core/java/android/view/KeyEvent.java
+index c939bbf..243a0fc 100644
+--- a/frameworks/base/core/java/android/view/KeyEvent.java
++++ b/frameworks/base/core/java/android/view/KeyEvent.java
+@@ -749,9 +749,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
+     /** Key code constant: Help key. */
+     public static final int KEYCODE_HELP = 259;
+ 
+-    public static final int KEYCODE_BLUETOOTH     = 260;
+-
+-    private static final int LAST_KEYCODE = KEYCODE_BLUETOOTH;
++    private static final int LAST_KEYCODE = KEYCODE_HELP;
+ 
+     // NOTE: If you add a new keycode here you must also add it to:
+     //  isSystem()
+@@ -1796,7 +1794,6 @@ public class KeyEvent extends InputEvent implements Parcelable {
+             case KeyEvent.KEYCODE_BRIGHTNESS_DOWN:
+             case KeyEvent.KEYCODE_BRIGHTNESS_UP:
+             case KeyEvent.KEYCODE_MEDIA_AUDIO_TRACK:
+-            case KeyEvent.KEYCODE_BLUETOOTH:
+                 return true;
+         }
+ 
+diff --git a/frameworks/base/core/res/res/values/attrs.xml b/frameworks/base/core/res/res/values/attrs.xml
+index 06ac4d9..2fd7d30 100644
+--- a/frameworks/base/core/res/res/values/attrs.xml
++++ b/frameworks/base/core/res/res/values/attrs.xml
+@@ -1774,7 +1774,6 @@
+         <enum name="KEYCODE_TV_MEDIA_CONTEXT_MENU" value="257" />
+         <enum name="KEYCODE_TV_TIMER_PROGRAMMING" value="258" />
+         <enum name="KEYCODE_HELP" value="259" />
+-        <enum name="KEYCODE_BLUETOOTH" value="260" />
+     </attr>
+ 
+     <!-- ***************************************************************** -->
+diff --git a/frameworks/base/data/keyboards/Generic.kl b/frameworks/base/data/keyboards/Generic.kl
+index 80f159c..9b7c762 100644
+--- a/frameworks/base/data/keyboards/Generic.kl
++++ b/frameworks/base/data/keyboards/Generic.kl
+@@ -247,8 +247,6 @@ key 224   BRIGHTNESS_DOWN
+ key 225   BRIGHTNESS_UP
+ key 226   HEADSETHOOK
+ 
+-key 237   BLUETOOTH 
+-
+ key 256   BUTTON_1
+ key 257   BUTTON_2
+ key 258   BUTTON_3
+diff --git a/frameworks/base/policy/src/com/android/internal/policy/impl/PhoneWindowManager.java b/frameworks/base/policy/src/com/android/internal/policy/impl/PhoneWindowManager.java
+index aeb1b75..6188126 100644
+--- a/frameworks/base/policy/src/com/android/internal/policy/impl/PhoneWindowManager.java
++++ b/frameworks/base/policy/src/com/android/internal/policy/impl/PhoneWindowManager.java
+@@ -4786,16 +4786,6 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+                 //Log.d("lfy", "sendBroadcast  action_key_contact ");
+                 break;
+             }
+-            // add by liujc begin
+-            case KeyEvent.KEYCODE_BLUETOOTH :{
+-                if(down) {
+-                    Intent intent = new Intent();
+-                    intent.setAction("action_key_bluetooth");
+-                    mContext.sendBroadcast(intent);
+-                    Log.d(TAG, "sendBroadcast  action_key_bluetooth------>bule tooth ");
+-                }
+-            }
+-            //end by liujc
+             case KeyEvent.KEYCODE_VOICE_ASSIST: {
+                 // Only do this if we would otherwise not pass it to the user. In that case,
+                 // interceptKeyBeforeDispatching would apply a similar but different policy in
+diff --git a/frameworks/native/include/android/keycodes.h b/frameworks/native/include/android/keycodes.h
+index 7455b8e..75d0ab6 100644
+--- a/frameworks/native/include/android/keycodes.h
++++ b/frameworks/native/include/android/keycodes.h
+@@ -302,8 +302,7 @@ enum {
+     AKEYCODE_TV_CONTENTS_MENU = 256,
+     AKEYCODE_TV_MEDIA_CONTEXT_MENU = 257,
+     AKEYCODE_TV_TIMER_PROGRAMMING = 258,
+-    AKEYCODE_HELP            = 259,
+-    AKEYCODE_BLUETOOTH  = 260
++    AKEYCODE_HELP            = 259
+ 
+     // NOTE: If you add a new keycode here you must also add it to several other files.
+     //       Refer to frameworks/base/core/java/android/view/KeyEvent.java for the full list.
+diff --git a/frameworks/native/include/input/InputEventLabels.h b/frameworks/native/include/input/InputEventLabels.h
+index 7868901..df50237 100644
+--- a/frameworks/native/include/input/InputEventLabels.h
++++ b/frameworks/native/include/input/InputEventLabels.h
+@@ -299,7 +299,6 @@ static const InputEventLabel KEYCODES[] = {
+     DEFINE_KEYCODE(TV_MEDIA_CONTEXT_MENU),
+     DEFINE_KEYCODE(TV_TIMER_PROGRAMMING),
+     DEFINE_KEYCODE(HELP),
+-    DEFINE_KEYCODE(BLUETOOTH),
+ 
+     { NULL, 0 }
+ };
